@@ -39,15 +39,17 @@ serve(async (req) => {
   let authorized = false;
 
   // Check 1: direct match against service role key (used by pg_cron)
-  if (token === serviceRoleKey) {
+  if (token && token === serviceRoleKey) {
     authorized = true;
+    console.log('[schedule-reminder] Auth: service role key match');
   }
 
   // Check 2: verify user JWT with Supabase Auth (for dashboard-triggered calls)
-  if (!authorized) {
+  if (!authorized && token) {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (!error && user) {
       authorized = true;
+      console.log('[schedule-reminder] Auth: valid user JWT');
     }
   }
 
