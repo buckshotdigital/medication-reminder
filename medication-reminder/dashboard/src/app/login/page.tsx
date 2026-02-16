@@ -173,7 +173,9 @@ export default function LoginPage() {
               MedReminder
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
-              Caregiver Dashboard
+              {authMode === 'signup'
+                ? 'Start free — 15 minutes of calls included'
+                : 'Caregiver Dashboard'}
             </p>
           </div>
 
@@ -316,7 +318,7 @@ export default function LoginPage() {
                 className="w-full"
               >
                 <Lock className="w-4 h-4" />
-                {authMode === 'signup' ? 'Create Account' : 'Sign In'}
+                {authMode === 'signup' ? 'Start Free Trial' : 'Sign In'}
               </Button>
 
               <div className="relative my-2">

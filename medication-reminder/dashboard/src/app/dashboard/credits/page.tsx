@@ -15,7 +15,7 @@ import { DailyUsageChart, BalanceTrendChart } from '@/components/credit-charts';
 import { Button, Input } from '@/components/form-field';
 import {
   Coins, Package, CreditCard, TrendingDown, ChevronDown, ChevronUp,
-  FileText, Download, ExternalLink,
+  FileText, Download, ExternalLink, Gift,
 } from 'lucide-react';
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -129,6 +129,11 @@ function CreditsPageContent() {
 
   const balanceMinutes = Number(balance?.balance_minutes ?? 0);
 
+  // Detect if user is still on free trial (only trial purchases, no paid ones)
+  const isOnTrial = purchases && purchases.length > 0
+    && purchases.every((p: any) => p.source === 'trial')
+    && !profile?.subscription_status?.match(/^(active|trialing)$/);
+
   // Burn rate calculation
   const analyticsUsage = analytics?.usage || [];
   const totalUsedLast30 = analyticsUsage.reduce(
@@ -212,6 +217,27 @@ function CreditsPageContent() {
           </>
         )}
       </div>
+
+      {/* Trial Banner */}
+      {isOnTrial && (
+        <div className="rounded-2xl border-2 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-950/20 p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-900/40 flex items-center justify-center flex-shrink-0">
+              <Gift className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-emerald-900 dark:text-emerald-100">
+                You're on a free trial
+              </h3>
+              <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
+                You have {Math.floor(balanceMinutes)} free minutes to try MedReminder.
+                Add a patient and schedule a reminder call to see it in action.
+                {balanceMinutes <= 5 && ' Your trial minutes are running low — purchase a credit pack below to keep going.'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Monthly Plan */}
       {profile && (
