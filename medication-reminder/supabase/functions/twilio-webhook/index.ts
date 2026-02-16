@@ -1,6 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { encode as encodeBase64 } from 'https://deno.land/std@0.168.0/encoding/base64.ts';
+import Stripe from 'https://esm.sh/stripe@13.10.0?target=deno&no-check';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -273,10 +274,13 @@ serve(async (req) => {
                 const { minutes_deducted, balance_after } = deductResult[0];
                 console.log(`[twilio-webhook] Credits deducted: ${minutes_deducted} min, balance: ${balance_after} min`);
 
-                // Low balance alert: check if below 20% of last purchase
+                // Low balance alert
                 if (balance_after <= 10) {
                   await sendLowBalanceAlert(plan.caregiver_id, balance_after);
                 }
+
+                // Auto top-up: check if enabled and balance is below threshold
+                await tryAutoTopup(plan.caregiver_id, balance_after);
               }
             }
           } catch (creditErr) {
@@ -471,6 +475,88 @@ async function sendLowBalanceAlert(caregiverId: string, balanceMinutes: number) 
     console.log('[twilio-webhook] Low balance alert sent to caregiver:', caregiverId);
   } catch (error) {
     console.error('[twilio-webhook] Failed to send low balance alert:', error);
+  }
+}
+
+async function tryAutoTopup(caregiverId: string, currentBalance: number) {
+  try {
+    // Check auto-topup settings
+    const { data: settings } = await supabase
+      .from('auto_topup_settings')
+      .select('*')
+      .eq('caregiver_id', caregiverId)
+      .eq('enabled', true)
+      .single();
+
+    if (!settings) return;
+    if (currentBalance >= Number(settings.threshold_minutes)) return;
+
+    // Check if caregiver has a Stripe customer with saved payment method
+    const { data: caregiver } = await supabase
+      .from('caregivers')
+      .select('stripe_customer_id')
+      .eq('id', caregiverId)
+      .single();
+
+    if (!caregiver?.stripe_customer_id) {
+      console.log('[twilio-webhook] Auto-topup: no stripe customer for caregiver:', caregiverId);
+      return;
+    }
+
+    const stripeSecretKey = Deno.env.get('STRIPE_SECRET_KEY');
+    if (!stripeSecretKey) {
+      console.log('[twilio-webhook] Auto-topup: STRIPE_SECRET_KEY not configured');
+      return;
+    }
+
+    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
+
+    // Get saved payment methods
+    const paymentMethods = await stripe.paymentMethods.list({
+      customer: caregiver.stripe_customer_id,
+      type: 'card',
+    });
+
+    if (paymentMethods.data.length === 0) {
+      console.log('[twilio-webhook] Auto-topup: no saved payment methods for:', caregiverId);
+      return;
+    }
+
+    // Create off-session PaymentIntent
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: settings.pack_price_cents,
+      currency: 'usd',
+      customer: caregiver.stripe_customer_id,
+      payment_method: paymentMethods.data[0].id,
+      off_session: true,
+      confirm: true,
+      description: `Auto top-up: ${settings.pack_label}`,
+      metadata: {
+        caregiver_id: caregiverId,
+        pack_minutes: String(settings.pack_minutes),
+        pack_price_cents: String(settings.pack_price_cents),
+        pack_label: settings.pack_label,
+        auto_topup: 'true',
+      },
+    });
+
+    if (paymentIntent.status === 'succeeded') {
+      // Add credits via RPC
+      const { data: newBalance } = await supabase.rpc('add_credits', {
+        p_caregiver_id: caregiverId,
+        p_minutes: settings.pack_minutes,
+        p_price_cents: settings.pack_price_cents,
+        p_pack_label: `Auto: ${settings.pack_label}`,
+        p_source: 'stripe',
+        p_stripe_payment_intent_id: paymentIntent.id,
+      });
+
+      console.log(`[twilio-webhook] Auto-topup success: ${settings.pack_minutes} min for ${caregiverId}, new balance: ${newBalance}`);
+    } else {
+      console.log(`[twilio-webhook] Auto-topup payment not succeeded, status: ${paymentIntent.status}`);
+    }
+  } catch (error) {
+    console.error('[twilio-webhook] Auto-topup failed:', error);
   }
 }
 

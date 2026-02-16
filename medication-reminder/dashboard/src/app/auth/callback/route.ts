@@ -8,7 +8,8 @@ export async function GET(request: Request) {
   // Validate redirect target against allowlist to prevent open redirect
   const requestedNext = searchParams.get('next') ?? '/dashboard';
   const allowedPaths = ['/dashboard', '/dashboard/patients', '/dashboard/calls',
-    '/dashboard/adherence', '/dashboard/medications/new', '/dashboard/settings'];
+    '/dashboard/adherence', '/dashboard/medications/new', '/dashboard/settings',
+    '/dashboard/credits'];
   const next = allowedPaths.some(p => requestedNext === p || requestedNext.startsWith('/dashboard/patients/'))
     ? requestedNext
     : '/dashboard';

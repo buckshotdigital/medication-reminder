@@ -377,6 +377,200 @@ export async function updatePatientPlan(patientId: string, planId: string) {
   if (error) throw error;
 }
 
+// ── Stripe / Billing Queries ──
+
+export async function purchaseCreditPack(packMinutes: number) {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const fnUrl = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-checkout`;
+
+  const response = await fetch(fnUrl, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${session.access_token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ pack_minutes: packMinutes }),
+  });
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to create checkout session');
+  }
+
+  const { url } = await response.json();
+  return url as string;
+}
+
+export async function addManualCredits(minutes: number, note?: string) {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/admin-add-credits`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ minutes, note }),
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to add credits');
+  }
+
+  return response.json();
+}
+
+export async function fetchAutoTopupSettings() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('auto_topup_settings')
+    .select('*')
+    .single();
+
+  if (error && error.code !== 'PGRST116') throw error;
+  return data;
+}
+
+export async function updateAutoTopupSettings(settings: {
+  enabled: boolean;
+  threshold_minutes: number;
+  pack_minutes: number;
+  pack_price_cents: number;
+  pack_label: string;
+}) {
+  const supabase = getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data: caregiver } = await supabase
+    .from('caregivers')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  if (!caregiver) throw new Error('Caregiver profile not found');
+
+  const { error } = await supabase
+    .from('auto_topup_settings')
+    .upsert({
+      caregiver_id: caregiver.id,
+      ...settings,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'caregiver_id' });
+
+  if (error) throw error;
+}
+
+export async function fetchCreditAnalytics() {
+  const supabase = getSupabase();
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const [usageResult, purchasesResult] = await Promise.all([
+    supabase
+      .from('credit_usage')
+      .select('created_at, minutes_deducted, balance_after')
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('credit_purchases')
+      .select('created_at, minutes_purchased')
+      .gte('created_at', thirtyDaysAgo.toISOString())
+      .order('created_at', { ascending: true }),
+  ]);
+
+  if (usageResult.error) throw usageResult.error;
+  if (purchasesResult.error) throw purchasesResult.error;
+
+  return {
+    usage: usageResult.data || [],
+    purchases: purchasesResult.data || [],
+  };
+}
+
+export async function createSubscription() {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-subscribe`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to create subscription');
+  }
+
+  const { url } = await response.json();
+  return url as string;
+}
+
+export async function createPortalSession() {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-portal`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to create portal session');
+  }
+
+  const { url } = await response.json();
+  return url as string;
+}
+
+export async function fetchInvoices() {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-invoices`,
+    {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to fetch invoices');
+  }
+
+  const { invoices } = await response.json();
+  return invoices as any[];
+}
+
 export async function addMedication(data: {
   patient_id: string;
   name: string;

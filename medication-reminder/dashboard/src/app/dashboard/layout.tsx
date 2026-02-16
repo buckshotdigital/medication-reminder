@@ -25,7 +25,7 @@ const navItems = [
   { href: '/dashboard/patients', label: 'Patients', icon: Users },
   { href: '/dashboard/calls', label: 'Calls', icon: Phone },
   { href: '/dashboard/adherence', label: 'Adherence', icon: BarChart3 },
-  { href: '/dashboard/credits', label: 'Credits', icon: Coins },
+  { href: '/dashboard/credits', label: 'Subscription', icon: Coins },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

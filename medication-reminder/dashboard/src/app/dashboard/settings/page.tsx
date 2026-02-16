@@ -16,7 +16,6 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userEmail, setUserEmail] = useState('');
-
   const [smsAlerts, setSmsAlerts] = useState(true);
   const [escalationCalls, setEscalationCalls] = useState(true);
 

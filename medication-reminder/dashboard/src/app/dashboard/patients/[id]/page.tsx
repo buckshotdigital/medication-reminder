@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchPatient, fetchCallLogs, updatePatient, updateMedication, deleteMedication, deletePatient, fetchPatientPlans, updatePatientPlan } from '@/lib/queries';
+import { fetchPatient, fetchCallLogs, updatePatient, updateMedication, deleteMedication, deletePatient, fetchPatientPlans, updatePatientPlan, fetchCreditBalance } from '@/lib/queries';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CallTranscript } from '@/components/call-transcript';
@@ -68,6 +68,7 @@ export default function PatientDetailPage() {
   const [togglingMedId, setTogglingMedId] = useState<string | null>(null);
 
   const [switchingPlan, setSwitchingPlan] = useState(false);
+  const [pendingPlanSwitch, setPendingPlanSwitch] = useState<string | null>(null);
 
   const { data: patient, isLoading: loadingPatient, refetch: refetchPatient } = useQuery({
     queryKey: ['patient', id],
@@ -84,21 +85,32 @@ export default function PatientDetailPage() {
     queryFn: fetchPatientPlans,
   });
 
+  const { data: creditBalance } = useQuery({
+    queryKey: ['credit-balance'],
+    queryFn: fetchCreditBalance,
+  });
+
   const currentPlan = patientPlans?.find((pp: any) => pp.patient_id === id && pp.is_active)?.plan_id || 'basic';
 
-  const handlePlanChange = useCallback(async (planId: string) => {
+  const handlePlanClick = useCallback((planId: string) => {
     if (planId === currentPlan) return;
+    setPendingPlanSwitch(planId);
+  }, [currentPlan]);
+
+  const confirmPlanSwitch = useCallback(async () => {
+    if (!pendingPlanSwitch) return;
     setSwitchingPlan(true);
     try {
-      await updatePatientPlan(id, planId);
+      await updatePatientPlan(id, pendingPlanSwitch);
       await refetchPlans();
-      toast(`Switched to ${planId === 'companionship' ? 'Companionship' : 'Basic'} plan`, 'success');
+      toast(`Switched to ${pendingPlanSwitch === 'companionship' ? 'Companionship' : 'Basic'} plan`, 'success');
     } catch (e) {
       toast('Failed to switch plan: ' + (e as Error).message, 'error');
     } finally {
       setSwitchingPlan(false);
+      setPendingPlanSwitch(null);
     }
-  }, [id, currentPlan, refetchPlans, toast]);
+  }, [id, pendingPlanSwitch, refetchPlans, toast]);
 
   const startEditMed = useCallback((med: any) => {
     setEditingMedId(med.id);
@@ -341,7 +353,7 @@ export default function PatientDetailPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Basic Plan Card */}
           <button
-            onClick={() => handlePlanChange('basic')}
+            onClick={() => handlePlanClick('basic')}
             disabled={switchingPlan}
             className={cn(
               'rounded-2xl p-5 text-left transition-all border-2',
@@ -372,7 +384,7 @@ export default function PatientDetailPage() {
 
           {/* Companionship Plan Card */}
           <button
-            onClick={() => handlePlanChange('companionship')}
+            onClick={() => handlePlanClick('companionship')}
             disabled={switchingPlan}
             className={cn(
               'rounded-2xl p-5 text-left transition-all border-2',
@@ -401,6 +413,38 @@ export default function PatientDetailPage() {
             </p>
           </button>
         </div>
+
+        {/* Plan Switch Confirmation Modal */}
+        {pendingPlanSwitch && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPendingPlanSwitch(null)}>
+            <div
+              className="bg-white dark:bg-card rounded-2xl shadow-lg p-6 max-w-md mx-4 animate-slide-up"
+              onClick={e => e.stopPropagation()}
+            >
+              <h3 className="font-semibold text-lg mb-3">Confirm Plan Change</h3>
+              {pendingPlanSwitch === 'companionship' ? (
+                <p className="text-sm text-muted-foreground mb-4">
+                  This patient&apos;s calls will use credits beyond the first 3 minutes.
+                  Your current balance is <span className="font-semibold text-foreground">{Math.floor(Number(creditBalance?.balance_minutes ?? 0))} minutes</span>.
+                  Make sure you have enough credits for extended calls.
+                </p>
+              ) : (
+                <p className="text-sm text-muted-foreground mb-4">
+                  This patient&apos;s calls will be capped at 5 minutes.
+                  Extended companionship conversations will no longer be available for this patient.
+                </p>
+              )}
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setPendingPlanSwitch(null)}>
+                  Cancel
+                </Button>
+                <Button size="sm" loading={switchingPlan} onClick={confirmPlanSwitch}>
+                  Confirm Switch
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Medications */}
