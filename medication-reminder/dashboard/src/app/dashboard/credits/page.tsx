@@ -565,9 +565,11 @@ function CreditsPageContent() {
                           'inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium',
                           row.source === 'stripe'
                             ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/30 dark:text-blue-300'
-                            : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
+                            : row.source === 'trial'
+                              ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300'
+                              : 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'
                         )}>
-                          {row.source === 'stripe' ? 'Stripe' : 'Manual'}
+                          {row.source === 'stripe' ? 'Stripe' : row.source === 'trial' ? 'Free Trial' : 'Manual'}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-right font-medium text-emerald-600 dark:text-emerald-400">
