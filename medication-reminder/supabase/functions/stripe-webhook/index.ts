@@ -46,13 +46,6 @@ serve(async (req) => {
         console.log(`[stripe-webhook] checkout.session.completed — mode: ${session.mode}, session: ${session.id}`);
         console.log(`[stripe-webhook] Session metadata:`, JSON.stringify(session.metadata));
 
-        // Only handle one-time payments (not subscriptions)
-        if (session.mode === 'subscription') {
-          // Handle subscription creation separately
-          await handleSubscriptionCheckout(supabase, session);
-          break;
-        }
-
         if (session.mode !== 'payment') {
           console.log(`[stripe-webhook] Skipping non-payment mode: ${session.mode}`);
           break;
@@ -101,41 +94,6 @@ serve(async (req) => {
         break;
       }
 
-      // ── Subscription Events ──
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated': {
-        const subscription = event.data.object as Stripe.Subscription;
-        await updateSubscriptionStatus(supabase, subscription);
-        break;
-      }
-
-      case 'customer.subscription.deleted': {
-        const subscription = event.data.object as Stripe.Subscription;
-        await updateSubscriptionStatus(supabase, subscription, 'canceled');
-        break;
-      }
-
-      case 'invoice.payment_failed': {
-        const invoice = event.data.object as Stripe.Invoice;
-        if (invoice.subscription) {
-          // Find caregiver by stripe customer
-          const { data: caregiver } = await supabase
-            .from('caregivers')
-            .select('id')
-            .eq('stripe_customer_id', invoice.customer as string)
-            .single();
-
-          if (caregiver) {
-            await supabase
-              .from('caregivers')
-              .update({ subscription_status: 'past_due' })
-              .eq('id', caregiver.id);
-            console.log(`[stripe-webhook] Subscription past_due for caregiver ${caregiver.id}`);
-          }
-        }
-        break;
-      }
-
       default:
         console.log(`[stripe-webhook] Unhandled event type: ${event.type}`);
     }
@@ -148,68 +106,3 @@ serve(async (req) => {
     headers: { 'Content-Type': 'application/json' },
   });
 });
-
-async function handleSubscriptionCheckout(
-  supabase: any,
-  session: Stripe.Checkout.Session
-) {
-  const customerId = session.customer as string;
-  if (!customerId) return;
-
-  const { data: caregiver } = await supabase
-    .from('caregivers')
-    .select('id')
-    .eq('stripe_customer_id', customerId)
-    .single();
-
-  if (!caregiver) {
-    console.error('[stripe-webhook] No caregiver found for customer:', customerId);
-    return;
-  }
-
-  const subscriptionId = session.subscription as string;
-  if (subscriptionId) {
-    await supabase
-      .from('caregivers')
-      .update({
-        stripe_subscription_id: subscriptionId,
-        subscription_status: 'active',
-      })
-      .eq('id', caregiver.id);
-    console.log(`[stripe-webhook] Subscription ${subscriptionId} linked to caregiver ${caregiver.id}`);
-  }
-}
-
-async function updateSubscriptionStatus(
-  supabase: any,
-  subscription: Stripe.Subscription,
-  overrideStatus?: string
-) {
-  const customerId = subscription.customer as string;
-  const { data: caregiver } = await supabase
-    .from('caregivers')
-    .select('id')
-    .eq('stripe_customer_id', customerId)
-    .single();
-
-  if (!caregiver) {
-    console.error('[stripe-webhook] No caregiver found for customer:', customerId);
-    return;
-  }
-
-  const status = overrideStatus || subscription.status;
-  const periodEnd = subscription.current_period_end
-    ? new Date(subscription.current_period_end * 1000).toISOString()
-    : null;
-
-  await supabase
-    .from('caregivers')
-    .update({
-      stripe_subscription_id: subscription.id,
-      subscription_status: status,
-      subscription_current_period_end: periodEnd,
-    })
-    .eq('id', caregiver.id);
-
-  console.log(`[stripe-webhook] Subscription ${subscription.id} status: ${status} for caregiver ${caregiver.id}`);
-}

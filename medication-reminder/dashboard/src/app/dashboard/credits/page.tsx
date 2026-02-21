@@ -5,9 +5,7 @@ import {
   fetchCreditBalance, fetchCreditUsage, fetchCreditPurchases,
   purchaseCreditPack, fetchAutoTopupSettings,
   updateAutoTopupSettings, fetchCreditAnalytics, fetchInvoices,
-  createSubscription, createPortalSession,
 } from '@/lib/queries';
-import { createClient } from '@/lib/supabase/client';
 import { cn, formatDate, formatTime } from '@/lib/utils';
 import { useToast } from '@/components/toast';
 import { ToggleSwitch } from '@/components/toggle-switch';
@@ -15,7 +13,7 @@ import { DailyUsageChart, BalanceTrendChart } from '@/components/credit-charts';
 import { Button, Input } from '@/components/form-field';
 import {
   Coins, Package, CreditCard, TrendingDown, ChevronDown, ChevronUp,
-  FileText, Download, ExternalLink, Gift,
+  FileText, Download, Gift,
 } from 'lucide-react';
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -47,11 +45,6 @@ function CreditsPageContent() {
   const [autoTopupPack, setAutoTopupPack] = useState(150);
   const [savingAutoTopup, setSavingAutoTopup] = useState(false);
 
-  // Subscription state
-  const [subscribing, setSubscribing] = useState(false);
-  const [openingPortal, setOpeningPortal] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
-
   // Handle Stripe redirect query params
   useEffect(() => {
     if (searchParams.get('success') === 'true') {
@@ -65,28 +58,10 @@ function CreditsPageContent() {
       refetch();
       setTimeout(refetch, 2000);
       setTimeout(refetch, 5000);
-    } else if (searchParams.get('subscription') === 'success') {
-      toast('Subscription activated successfully!', 'success');
-    } else if (searchParams.get('canceled') === 'true' || searchParams.get('subscription') === 'canceled') {
+    } else if (searchParams.get('canceled') === 'true') {
       toast('Payment was canceled.', 'info');
     }
   }, [searchParams, toast, queryClient]);
-
-  // Load caregiver profile for subscription status
-  useEffect(() => {
-    async function loadProfile() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data } = await supabase
-        .from('caregivers')
-        .select('id, subscription_status, subscription_current_period_end')
-        .eq('auth_user_id', user.id)
-        .single();
-      if (data) setProfile(data);
-    }
-    loadProfile();
-  }, []);
 
   const { data: balance, isLoading: loadingBalance } = useQuery({
     queryKey: ['credit-balance'],
@@ -131,8 +106,7 @@ function CreditsPageContent() {
 
   // Detect if user is still on free trial (only trial purchases, no paid ones)
   const isOnTrial = purchases && purchases.length > 0
-    && purchases.every((p: any) => p.source === 'trial')
-    && !profile?.subscription_status?.match(/^(active|trialing)$/);
+    && purchases.every((p: any) => p.source === 'trial');
 
   // Burn rate calculation
   const analyticsUsage = analytics?.usage || [];
@@ -183,9 +157,9 @@ function CreditsPageContent() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold">Subscription</h1>
+        <h1 className="text-2xl font-bold">Credits</h1>
         <p className="text-muted-foreground mt-1">
-          Manage your plan, credits, and billing
+          Manage your credits and billing
         </p>
       </div>
 
@@ -235,108 +209,6 @@ function CreditsPageContent() {
                 {balanceMinutes <= 5 && ' Your trial minutes are running low — purchase a credit pack below to keep going.'}
               </p>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* Monthly Plan */}
-      {profile && (
-        <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-6">
-          <h2 className="font-semibold mb-4">Monthly Plan</h2>
-          <div className="max-w-lg">
-            {profile.subscription_status === 'active' || profile.subscription_status === 'trialing' ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CreditCard className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="text-sm font-medium">MedReminder Base Plan — $49/mo</p>
-                    <p className="text-xs text-muted-foreground">
-                      Status: <span className="text-emerald-600 dark:text-emerald-400 font-medium">{profile.subscription_status}</span>
-                      {profile.subscription_current_period_end && (
-                        <> &middot; Next billing: {new Date(profile.subscription_current_period_end).toLocaleDateString()}</>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={openingPortal}
-                  onClick={async () => {
-                    setOpeningPortal(true);
-                    try {
-                      const url = await createPortalSession();
-                      window.location.href = url;
-                    } catch (e) {
-                      toast('Failed to open billing portal: ' + (e as Error).message, 'error');
-                      setOpeningPortal(false);
-                    }
-                  }}
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Manage
-                </Button>
-              </div>
-            ) : profile.subscription_status === 'past_due' ? (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CreditCard className="w-5 h-5 text-amber-500" />
-                  <div>
-                    <p className="text-sm font-medium">MedReminder Base Plan — $49/mo</p>
-                    <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">
-                      Payment failed — please update your payment method
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={openingPortal}
-                  onClick={async () => {
-                    setOpeningPortal(true);
-                    try {
-                      const url = await createPortalSession();
-                      window.location.href = url;
-                    } catch (e) {
-                      toast('Failed to open billing portal: ' + (e as Error).message, 'error');
-                      setOpeningPortal(false);
-                    }
-                  }}
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Update Payment
-                </Button>
-              </div>
-            ) : (
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <CreditCard className="w-5 h-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">MedReminder Base Plan — $49/mo</p>
-                    <p className="text-xs text-muted-foreground">
-                      Includes medication reminder calls for all your patients
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  size="sm"
-                  loading={subscribing}
-                  onClick={async () => {
-                    setSubscribing(true);
-                    try {
-                      const url = await createSubscription();
-                      window.location.href = url;
-                    } catch (e) {
-                      toast('Failed to start subscription: ' + (e as Error).message, 'error');
-                      setSubscribing(false);
-                    }
-                  }}
-                >
-                  <CreditCard className="w-4 h-4" />
-                  Subscribe
-                </Button>
-              </div>
-            )}
           </div>
         </div>
       )}

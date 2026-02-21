@@ -16,7 +16,7 @@ import {
   Settings,
   LogOut,
   Pill,
-  MoreHorizontal,
+  ClipboardList,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -25,7 +25,8 @@ const navItems = [
   { href: '/dashboard/patients', label: 'Patients', icon: Users },
   { href: '/dashboard/calls', label: 'Calls', icon: Phone },
   { href: '/dashboard/adherence', label: 'Adherence', icon: BarChart3 },
-  { href: '/dashboard/credits', label: 'Subscription', icon: Coins },
+  { href: '/dashboard/tasks', label: 'Tasks', icon: ClipboardList },
+  { href: '/dashboard/credits', label: 'Credits', icon: Coins },
   { href: '/dashboard/settings', label: 'Settings', icon: Settings },
 ];
 

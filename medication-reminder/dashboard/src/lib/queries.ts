@@ -7,6 +7,28 @@ function getSupabase() {
 export async function fetchDashboardStats() {
   const supabase = getSupabase();
 
+  // Preferred path: fetch pre-aggregated stats from edge function.
+  // This includes credits + escalations and keeps dashboard math consistent.
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session) {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/dashboard-stats`,
+        {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${session.access_token}`,
+          },
+        }
+      );
+      if (response.ok) {
+        return response.json();
+      }
+    }
+  } catch {
+    // Fallback to direct table queries below.
+  }
+
   // Use UTC-based date boundaries for consistency
   const now = new Date();
   const todayStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0));
@@ -14,8 +36,8 @@ export async function fetchDashboardStats() {
   const weekStart = new Date(todayStart);
   weekStart.setUTCDate(weekStart.getUTCDate() - 7);
 
-  // Run all queries in parallel (including recentCalls)
-  const [callsResult, pendingResult, weekResult, patientsResult, recentResult] = await Promise.all([
+  // Run all queries in parallel (including recent calls, escalations, and credits)
+  const [callsResult, pendingResult, weekResult, patientsResult, recentResult, escalationsResult, balanceResult, companionshipResult] = await Promise.all([
     // Today's call logs
     supabase
       .from('reminder_call_logs')
@@ -46,6 +68,25 @@ export async function fetchDashboardStats() {
       .select('*, patients(name), medications(name, dosage)')
       .order('created_at', { ascending: false })
       .limit(10),
+    // Active escalations
+    supabase
+      .from('escalation_events')
+      .select('*, patients(name)')
+      .eq('resolved', false)
+      .order('created_at', { ascending: false })
+      .limit(5),
+    // Credit balance
+    supabase
+      .from('credit_balances')
+      .select('balance_minutes')
+      .maybeSingle(),
+    // Whether caregiver has at least one active companionship plan
+    supabase
+      .from('patient_plans')
+      .select('id')
+      .eq('plan_id', 'companionship')
+      .eq('is_active', true)
+      .limit(1),
   ]);
 
   // Check for errors
@@ -75,12 +116,19 @@ export async function fetchDashboardStats() {
   const weekTaken = weekCalls.filter(c => c.medication_taken === true).length;
   const weeklyAdherence = weekTotal > 0 ? Math.round((weekTaken / weekTotal) * 100) : 0;
 
+  const escalations = escalationsResult.error ? [] : (escalationsResult.data || []);
+  const credits = {
+    balance_minutes: Number(balanceResult.data?.balance_minutes || 0),
+    has_companionship_patients: (companionshipResult.data || []).length > 0,
+  };
+
   return {
     today: { taken, pending, missed, unreached },
     patients,
     weekly_adherence: weeklyAdherence,
     recent_calls: recentResult.data || [],
-    escalations: [],
+    escalations,
+    credits,
   };
 }
 
@@ -90,7 +138,7 @@ export async function fetchPatients() {
     .from('patients')
     .select(`
       *,
-      medications (id, name, dosage, reminder_time, is_active)
+      medications (id, name, dosage, reminder_time, is_active, refill_remaining_doses, refill_alert_threshold, last_refill_date)
     `)
     .order('name');
 
@@ -104,7 +152,7 @@ export async function fetchPatient(id: string) {
     .from('patients')
     .select(`
       *,
-      medications (id, name, description, dosage, reminder_time, reminder_days, is_active),
+      medications (id, name, description, dosage, reminder_time, reminder_days, is_active, refill_remaining_doses, refill_alert_threshold, last_refill_date),
       patient_caregivers (is_primary, caregivers (name, phone_number, email))
     `)
     .eq('id', id)
@@ -497,56 +545,6 @@ export async function fetchCreditAnalytics() {
   };
 }
 
-export async function createSubscription() {
-  const supabase = getSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Not authenticated');
-
-  const response = await fetch(
-    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-subscribe`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || 'Failed to create subscription');
-  }
-
-  const { url } = await response.json();
-  return url as string;
-}
-
-export async function createPortalSession() {
-  const supabase = getSupabase();
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session) throw new Error('Not authenticated');
-
-  const response = await fetch(
-    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/stripe-portal`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${session.access_token}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  );
-
-  if (!response.ok) {
-    const body = await response.json().catch(() => ({}));
-    throw new Error(body.error || 'Failed to create portal session');
-  }
-
-  const { url } = await response.json();
-  return url as string;
-}
-
 export async function fetchInvoices() {
   const supabase = getSupabase();
   const { data: { session } } = await supabase.auth.getSession();
@@ -578,6 +576,9 @@ export async function addMedication(data: {
   description?: string;
   reminder_time: string;
   reminder_days?: number[];
+  refill_remaining_doses?: number | null;
+  refill_alert_threshold?: number | null;
+  last_refill_date?: string | null;
 }) {
   const supabase = getSupabase();
   const { data: med, error } = await supabase
@@ -610,4 +611,137 @@ export async function addMedication(data: {
   }
 
   return med;
+}
+
+export async function fetchCareTasks() {
+  const supabase = getSupabase();
+  const nowIso = new Date().toISOString();
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+
+  const [escalationsResult, missedResult, overdueCallsResult, refillResult, balanceResult, companionshipResult] = await Promise.all([
+    supabase
+      .from('escalation_events')
+      .select('id, level, type, details, created_at, patients(name)')
+      .eq('resolved', false)
+      .order('created_at', { ascending: false })
+      .limit(20),
+    supabase
+      .from('reminder_call_logs')
+      .select('id, status, medication_taken, created_at, patients(name), medications(name)')
+      .or('medication_taken.eq.false,status.eq.no_answer,status.eq.failed,status.eq.voicemail')
+      .gte('created_at', threeDaysAgo.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(20),
+    supabase
+      .from('scheduled_reminder_calls')
+      .select('id, scheduled_for, attempt_number, patients(name), medications(name)')
+      .eq('status', 'pending')
+      .lt('scheduled_for', nowIso)
+      .order('scheduled_for', { ascending: true })
+      .limit(20),
+    supabase
+      .from('medications')
+      .select('id, name, refill_remaining_doses, refill_alert_threshold, patients(name)')
+      .eq('is_active', true)
+      .not('refill_remaining_doses', 'is', null)
+      .order('refill_remaining_doses', { ascending: true })
+      .limit(20),
+    supabase
+      .from('credit_balances')
+      .select('balance_minutes')
+      .maybeSingle(),
+    supabase
+      .from('patient_plans')
+      .select('id')
+      .eq('plan_id', 'companionship')
+      .eq('is_active', true)
+      .limit(1),
+  ]);
+
+  const tasks: Array<{
+    id: string;
+    type: 'escalation' | 'missed' | 'overdue_call' | 'refill' | 'low_credit';
+    priority: 'high' | 'medium' | 'low';
+    title: string;
+    subtitle: string;
+    created_at: string;
+  }> = [];
+
+  for (const e of (escalationsResult.data || []) as any[]) {
+    const patientName = Array.isArray(e.patients) ? e.patients[0]?.name : e.patients?.name;
+    tasks.push({
+      id: `esc-${e.id}`,
+      type: 'escalation',
+      priority: e.level >= 3 ? 'high' : 'medium',
+      title: `${patientName || 'Patient'} escalation`,
+      subtitle: e.details || `Escalation level ${e.level}`,
+      created_at: e.created_at,
+    });
+  }
+
+  for (const c of (missedResult.data || []) as any[]) {
+    const isUnreached = ['no_answer', 'failed', 'voicemail'].includes(c.status);
+    const patientName = Array.isArray(c.patients) ? c.patients[0]?.name : c.patients?.name;
+    const medName = Array.isArray(c.medications) ? c.medications[0]?.name : c.medications?.name;
+    tasks.push({
+      id: `call-${c.id}`,
+      type: 'missed',
+      priority: isUnreached ? 'medium' : 'high',
+      title: `${patientName || 'Patient'} ${isUnreached ? 'was not reached' : 'missed medication'}`,
+      subtitle: medName ? `Medication: ${medName}` : 'Recent call needs follow-up',
+      created_at: c.created_at,
+    });
+  }
+
+  for (const sc of (overdueCallsResult.data || []) as any[]) {
+    const patientName = Array.isArray(sc.patients) ? sc.patients[0]?.name : sc.patients?.name;
+    const medName = Array.isArray(sc.medications) ? sc.medications[0]?.name : sc.medications?.name;
+    tasks.push({
+      id: `due-${sc.id}`,
+      type: 'overdue_call',
+      priority: 'medium',
+      title: `Pending reminder call is overdue`,
+      subtitle: `${patientName || 'Patient'}${medName ? ` - ${medName}` : ''} (attempt ${sc.attempt_number || 1})`,
+      created_at: sc.scheduled_for,
+    });
+  }
+
+  for (const m of (refillResult.data || []) as any[]) {
+    const remaining = Number(m.refill_remaining_doses || 0);
+    const threshold = Number(m.refill_alert_threshold || 3);
+    const patientName = Array.isArray(m.patients) ? m.patients[0]?.name : m.patients?.name;
+    if (remaining <= threshold) {
+      tasks.push({
+        id: `refill-${m.id}`,
+        type: 'refill',
+        priority: remaining <= 1 ? 'high' : 'medium',
+        title: `${patientName || 'Patient'} may need refill soon`,
+        subtitle: `${m.name}: ${remaining} doses remaining`,
+        created_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  const hasCompanionship = (companionshipResult.data || []).length > 0;
+  const balanceMinutes = Number(balanceResult.data?.balance_minutes || 0);
+  if (hasCompanionship && balanceMinutes <= 10) {
+    tasks.push({
+      id: 'low-credit',
+      type: 'low_credit',
+      priority: balanceMinutes <= 5 ? 'high' : 'medium',
+      title: 'Companionship credits are low',
+      subtitle: `${Math.floor(balanceMinutes)} minutes remaining`,
+      created_at: new Date().toISOString(),
+    });
+  }
+
+  const priorityRank = { high: 0, medium: 1, low: 2 };
+  tasks.sort((a, b) => {
+    const p = priorityRank[a.priority] - priorityRank[b.priority];
+    if (p !== 0) return p;
+    return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+  });
+
+  return tasks;
 }
