@@ -9,6 +9,8 @@ const supabase = createClient(
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')!;
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')!;
 const TWILIO_PHONE_NUMBER = Deno.env.get('TWILIO_PHONE_NUMBER')!;
+const TWILIO_TEST_MODE = (Deno.env.get('TWILIO_TEST_MODE') || '').toLowerCase() === 'true';
+const TWILIO_TEST_TO_NUMBER = Deno.env.get('TWILIO_TEST_TO_NUMBER') || '';
 
 function verifyServiceAuth(req: Request): boolean {
   const authHeader = req.headers.get('authorization') || '';
@@ -103,34 +105,24 @@ serve(async (req) => {
     let escalationType = 'missed_dose';
     const actions: string[] = [];
 
+    // Configurable thresholds from primary caregiver preferences
+    const primaryPrefs = (primaryCaregivers[0]?.caregivers as any)?.notification_prefs || {};
+    const firstSmsAfterMisses = Math.max(1, Number(primaryPrefs.first_sms_after_misses || 1));
+    const allSmsAfterMisses = Math.max(firstSmsAfterMisses, Number(primaryPrefs.all_sms_after_misses || 2));
+    const callAfterMisses = Math.max(allSmsAfterMisses, Number(primaryPrefs.call_after_misses || 3));
+
+    if (consecutiveMisses < firstSmsAfterMisses) {
+      return new Response(
+        JSON.stringify({
+          escalated: false,
+          reason: `Below threshold (${consecutiveMisses}/${firstSmsAfterMisses})`,
+        }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
     // Escalation ladder
-    if (consecutiveMisses === 1) {
-      // Level 1: SMS to primary caregiver
-      escalationLevel = 1;
-      for (const link of primaryCaregivers) {
-        const cg = link.caregivers as any;
-        if (cg?.phone_number && cg?.notification_prefs?.sms_alerts !== false) {
-          await sendSMS(
-            cg.phone_number,
-            `Medication Reminder: ${patient.name} missed their dose today. This is their first consecutive miss. Please check in on them.`
-          );
-          actions.push(`SMS sent to primary caregiver: ${cg.name}`);
-        }
-      }
-    } else if (consecutiveMisses === 2) {
-      // Level 2: SMS to ALL caregivers
-      escalationLevel = 2;
-      for (const link of allCaregivers) {
-        const cg = link.caregivers as any;
-        if (cg?.phone_number && cg?.notification_prefs?.sms_alerts !== false) {
-          await sendSMS(
-            cg.phone_number,
-            `ALERT: ${patient.name} has missed ${consecutiveMisses} consecutive medication doses. Please check in on them as soon as possible.`
-          );
-          actions.push(`SMS sent to caregiver: ${cg.name}`);
-        }
-      }
-    } else if (consecutiveMisses >= 3) {
+    if (consecutiveMisses >= callAfterMisses) {
       // Level 3: SMS to all + automated call to primary
       escalationLevel = 3;
       for (const link of allCaregivers) {
@@ -150,6 +142,32 @@ serve(async (req) => {
         if (cg?.phone_number && cg?.notification_prefs?.escalation_calls !== false) {
           await makeEscalationCall(cg.phone_number, patient.name, consecutiveMisses);
           actions.push(`Escalation call made to: ${cg.name}`);
+        }
+      }
+    } else if (consecutiveMisses >= allSmsAfterMisses) {
+      // Level 2: SMS to ALL caregivers
+      escalationLevel = 2;
+      for (const link of allCaregivers) {
+        const cg = link.caregivers as any;
+        if (cg?.phone_number && cg?.notification_prefs?.sms_alerts !== false) {
+          await sendSMS(
+            cg.phone_number,
+            `ALERT: ${patient.name} has missed ${consecutiveMisses} consecutive medication doses. Please check in on them as soon as possible.`
+          );
+          actions.push(`SMS sent to caregiver: ${cg.name}`);
+        }
+      }
+    } else {
+      // Level 1: SMS to primary caregiver
+      escalationLevel = 1;
+      for (const link of primaryCaregivers) {
+        const cg = link.caregivers as any;
+        if (cg?.phone_number && cg?.notification_prefs?.sms_alerts !== false) {
+          await sendSMS(
+            cg.phone_number,
+            `Medication Reminder: ${patient.name} missed their dose today. This is their first consecutive miss. Please check in on them.`
+          );
+          actions.push(`SMS sent to primary caregiver: ${cg.name}`);
         }
       }
     }
@@ -221,6 +239,13 @@ async function makeEscalationCall(to: string, patientName: string, misses: numbe
   );
 
   try {
+    const targetNumber = TWILIO_TEST_MODE && TWILIO_TEST_TO_NUMBER
+      ? TWILIO_TEST_TO_NUMBER
+      : to;
+    if (TWILIO_TEST_MODE && TWILIO_TEST_TO_NUMBER) {
+      console.log(`[escalation-engine] TEST MODE ON: routing call ${to} -> ${TWILIO_TEST_TO_NUMBER}`);
+    }
+
     const response = await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls.json`,
       {
@@ -230,7 +255,7 @@ async function makeEscalationCall(to: string, patientName: string, misses: numbe
           'Content-Type': 'application/x-www-form-urlencoded',
         },
         body: new URLSearchParams({
-          To: to,
+          To: targetNumber,
           From: TWILIO_PHONE_NUMBER,
           Twiml: `<Response><Say voice="Polly.Amy">This is an urgent medication reminder alert. ${patientName} has missed ${misses} consecutive medication doses and may need your help. Please check on them as soon as possible. Thank you.</Say></Response>`,
           Timeout: '30',

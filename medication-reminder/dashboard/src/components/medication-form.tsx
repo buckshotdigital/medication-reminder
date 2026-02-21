@@ -54,6 +54,15 @@ export function MedicationForm({ patientId, onSuccess, onCancel }: MedicationFor
         description: form.get('description') as string || undefined,
         reminder_time: form.get('reminder_time') as string,
         reminder_days: selectedDays,
+        refill_remaining_doses: form.get('refill_remaining_doses')
+          ? Number(form.get('refill_remaining_doses'))
+          : null,
+        refill_alert_threshold: form.get('refill_alert_threshold')
+          ? Number(form.get('refill_alert_threshold'))
+          : null,
+        last_refill_date: form.get('last_refill_date')
+          ? String(form.get('last_refill_date'))
+          : null,
       });
       toast('Medication added successfully', 'success');
       onSuccess();
@@ -92,6 +101,29 @@ export function MedicationForm({ patientId, onSuccess, onCancel }: MedicationFor
             required
             type="time"
             defaultValue="09:00"
+          />
+        </FormField>
+        <FormField label="Remaining Doses">
+          <Input
+            name="refill_remaining_doses"
+            type="number"
+            min="0"
+            placeholder="e.g. 30"
+          />
+        </FormField>
+        <FormField label="Refill Alert Threshold">
+          <Input
+            name="refill_alert_threshold"
+            type="number"
+            min="0"
+            defaultValue="3"
+            placeholder="e.g. 3"
+          />
+        </FormField>
+        <FormField label="Last Refill Date">
+          <Input
+            name="last_refill_date"
+            type="date"
           />
         </FormField>
       </div>

@@ -63,6 +63,9 @@ export default function PatientDetailPage() {
     description: '',
     reminder_time: '',
     reminder_days: [] as number[],
+    refill_remaining_doses: '',
+    refill_alert_threshold: '3',
+    last_refill_date: '',
   });
   const [savingMed, setSavingMed] = useState(false);
   const [togglingMedId, setTogglingMedId] = useState<string | null>(null);
@@ -120,6 +123,9 @@ export default function PatientDetailPage() {
       description: med.description || '',
       reminder_time: med.reminder_time || '09:00',
       reminder_days: med.reminder_days || [1, 2, 3, 4, 5, 6, 7],
+      refill_remaining_doses: med.refill_remaining_doses != null ? String(med.refill_remaining_doses) : '',
+      refill_alert_threshold: med.refill_alert_threshold != null ? String(med.refill_alert_threshold) : '3',
+      last_refill_date: med.last_refill_date || '',
     });
   }, []);
 
@@ -151,6 +157,13 @@ export default function PatientDetailPage() {
         description: editMed.description.trim() || null,
         reminder_time: editMed.reminder_time,
         reminder_days: editMed.reminder_days,
+        refill_remaining_doses: editMed.refill_remaining_doses === ''
+          ? null
+          : Number(editMed.refill_remaining_doses),
+        refill_alert_threshold: editMed.refill_alert_threshold === ''
+          ? null
+          : Number(editMed.refill_alert_threshold),
+        last_refill_date: editMed.last_refill_date || null,
       });
       await refetchPatient();
       setEditingMedId(null);
@@ -519,6 +532,34 @@ export default function PatientDetailPage() {
                         onChange={e => setEditMed(prev => ({ ...prev, reminder_time: e.target.value }))}
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Remaining Doses</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={editMed.refill_remaining_doses}
+                        onChange={e => setEditMed(prev => ({ ...prev, refill_remaining_doses: e.target.value }))}
+                        placeholder="e.g. 30"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Refill Alert Threshold</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        value={editMed.refill_alert_threshold}
+                        onChange={e => setEditMed(prev => ({ ...prev, refill_alert_threshold: e.target.value }))}
+                        placeholder="e.g. 3"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Last Refill Date</label>
+                      <Input
+                        type="date"
+                        value={editMed.last_refill_date}
+                        onChange={e => setEditMed(prev => ({ ...prev, last_refill_date: e.target.value }))}
+                      />
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm font-medium mb-2">
@@ -585,6 +626,25 @@ export default function PatientDetailPage() {
                           ))}
                         </div>
                       </div>
+                      {(med.refill_remaining_doses != null || med.last_refill_date) && (
+                        <div className="mt-2 text-xs text-muted-foreground space-x-2">
+                          {med.refill_remaining_doses != null && (
+                            <span
+                              className={cn(
+                                'inline-flex px-2 py-0.5 rounded-full',
+                                Number(med.refill_remaining_doses) <= Number(med.refill_alert_threshold || 3)
+                                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300'
+                                  : 'bg-muted text-muted-foreground'
+                              )}
+                            >
+                              {med.refill_remaining_doses} doses left
+                            </span>
+                          )}
+                          {med.last_refill_date && (
+                            <span>Last refill: {med.last_refill_date}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">

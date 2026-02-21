@@ -18,6 +18,9 @@ export default function SettingsPage() {
   const [userEmail, setUserEmail] = useState('');
   const [smsAlerts, setSmsAlerts] = useState(true);
   const [escalationCalls, setEscalationCalls] = useState(true);
+  const [firstSmsAfterMisses, setFirstSmsAfterMisses] = useState(1);
+  const [allSmsAfterMisses, setAllSmsAfterMisses] = useState(2);
+  const [callAfterMisses, setCallAfterMisses] = useState(3);
 
   useEffect(() => {
     async function loadProfile() {
@@ -37,6 +40,9 @@ export default function SettingsPage() {
         const prefs = data.notification_prefs || {};
         setSmsAlerts(prefs.sms_alerts !== false);
         setEscalationCalls(prefs.escalation_calls !== false);
+        setFirstSmsAfterMisses(Number(prefs.first_sms_after_misses || 1));
+        setAllSmsAfterMisses(Number(prefs.all_sms_after_misses || 2));
+        setCallAfterMisses(Number(prefs.call_after_misses || 3));
       }
       setLoading(false);
     }
@@ -51,6 +57,10 @@ export default function SettingsPage() {
 
     const form = new FormData(e.currentTarget);
 
+    const first = Math.max(1, Math.min(7, Number(firstSmsAfterMisses || 1)));
+    const all = Math.max(first, Math.min(10, Number(allSmsAfterMisses || 2)));
+    const call = Math.max(all, Math.min(14, Number(callAfterMisses || 3)));
+
     const { error } = await supabase
       .from('caregivers')
       .update({
@@ -60,6 +70,9 @@ export default function SettingsPage() {
         notification_prefs: {
           sms_alerts: smsAlerts,
           escalation_calls: escalationCalls,
+          first_sms_after_misses: first,
+          all_sms_after_misses: all,
+          call_after_misses: call,
         },
       })
       .eq('id', profile.id);
@@ -144,6 +157,36 @@ export default function SettingsPage() {
             label="Escalation Calls"
             description="Receive phone calls for critical escalation events"
           />
+          <div className="pt-4 space-y-3">
+            <p className="text-sm font-medium">Escalation Rules</p>
+            <FormField label="Primary caregiver SMS after consecutive misses">
+              <Input
+                type="number"
+                min="1"
+                max="7"
+                value={firstSmsAfterMisses}
+                onChange={e => setFirstSmsAfterMisses(Number(e.target.value || 1))}
+              />
+            </FormField>
+            <FormField label="All caregiver SMS after consecutive misses">
+              <Input
+                type="number"
+                min={String(firstSmsAfterMisses)}
+                max="10"
+                value={allSmsAfterMisses}
+                onChange={e => setAllSmsAfterMisses(Number(e.target.value || 2))}
+              />
+            </FormField>
+            <FormField label="Escalation call after consecutive misses">
+              <Input
+                type="number"
+                min={String(allSmsAfterMisses)}
+                max="14"
+                value={callAfterMisses}
+                onChange={e => setCallAfterMisses(Number(e.target.value || 3))}
+              />
+            </FormField>
+          </div>
         </div>
         <p className="text-xs text-muted-foreground mt-3">
           Changes are saved when you click &quot;Save Changes&quot; above.

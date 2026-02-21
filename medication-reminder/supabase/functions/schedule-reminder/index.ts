@@ -1,5 +1,42 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
+import { encode as encodeBase64Url } from 'https://deno.land/std@0.168.0/encoding/base64url.ts';
+
+async function verifyServiceRoleJWT(token: string): Promise<boolean> {
+  const jwtSecret = Deno.env.get('SUPABASE_JWT_SECRET');
+  if (!jwtSecret) {
+    // Fallback: if JWT secret not available, verify role claim only
+    // (gateway still validates signature when deployed without --no-verify-jwt)
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return payload.role === 'service_role';
+  }
+
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+
+  // Verify HMAC-SHA256 signature
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(jwtSecret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  );
+  const expectedSig = encodeBase64Url(new Uint8Array(signature));
+  if (expectedSig !== parts[2]) return false;
+
+  // Signature valid — now check claims
+  const payload = JSON.parse(atob(parts[1]));
+  if (payload.role !== 'service_role') return false;
+  if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return false;
+
+  return true;
+}
 
 function getCorsHeaders(req: Request) {
   const origin = req.headers.get('origin') || '';
@@ -22,6 +59,8 @@ const supabase = createClient(
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')!;
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')!;
 const TWILIO_PHONE_NUMBER = Deno.env.get('TWILIO_PHONE_NUMBER')!;
+const TWILIO_TEST_MODE = (Deno.env.get('TWILIO_TEST_MODE') || '').toLowerCase() === 'true';
+const TWILIO_TEST_TO_NUMBER = Deno.env.get('TWILIO_TEST_TO_NUMBER') || '';
 
 serve(async (req) => {
   const cors = getCorsHeaders(req);
@@ -31,35 +70,29 @@ serve(async (req) => {
     return new Response('ok', { headers: cors });
   }
 
-  // Auth check: allow service-role key (from pg_cron) or valid user JWT
+  // Auth check: service-role only (from pg_cron / trusted backend)
+  // Verifies HMAC-SHA256 signature + role claim when SUPABASE_JWT_SECRET is set,
+  // otherwise falls back to role claim check (gateway still validates signature).
   const authHeader = req.headers.get('authorization') || '';
   const token = authHeader.replace('Bearer ', '');
-  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-  let authorized = false;
-
-  // Check 1: direct match against service role key (used by pg_cron)
-  if (token && token === serviceRoleKey) {
-    authorized = true;
-    console.log('[schedule-reminder] Auth: service role key match');
-  }
-
-  // Check 2: verify user JWT with Supabase Auth (for dashboard-triggered calls)
-  if (!authorized && token) {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (!error && user) {
-      authorized = true;
-      console.log('[schedule-reminder] Auth: valid user JWT');
+  try {
+    const isValid = await verifyServiceRoleJWT(token);
+    if (!isValid) {
+      console.log('[schedule-reminder] Unauthorized: JWT verification failed');
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { headers: { ...cors, 'Content-Type': 'application/json' }, status: 401 }
+      );
     }
-  }
-
-  if (!authorized) {
-    console.log('[schedule-reminder] Unauthorized access attempt');
+  } catch (e) {
+    console.log('[schedule-reminder] Unauthorized: invalid token -', e.message);
     return new Response(
       JSON.stringify({ success: false, error: 'Unauthorized' }),
       { headers: { ...cors, 'Content-Type': 'application/json' }, status: 401 }
     );
   }
+  console.log('[schedule-reminder] Auth: service_role verified');
 
   console.log('[schedule-reminder] Checking for pending calls...');
 
@@ -99,11 +132,21 @@ serve(async (req) => {
       try {
         console.log(`[schedule-reminder] Processing call for ${call.patients?.name}`);
 
-        // Mark as in progress
-        await supabase
+        // Atomically claim this pending row to avoid double-processing in concurrent workers
+        const { data: claimedRows, error: claimError } = await supabase
           .from('scheduled_reminder_calls')
           .update({ status: 'in_progress' })
-          .eq('id', call.id);
+          .eq('id', call.id)
+          .eq('status', 'pending')
+          .select('id');
+
+        if (claimError) {
+          throw claimError;
+        }
+        if (!claimedRows || claimedRows.length === 0) {
+          console.log(`[schedule-reminder] Call ${call.id} already claimed by another worker, skipping`);
+          continue;
+        }
 
         // Look up patient's plan for duration cap
         let maxDuration = 300; // Default: 5 minutes (basic)
@@ -226,7 +269,13 @@ async function initiateCall(
   const webhookBase = `https://${projectRef}.supabase.co/functions/v1/twilio-webhook`;
   const wsUrl = `wss://${projectRef}.supabase.co/functions/v1/twilio-media-stream`;
 
-  console.log(`[schedule-reminder] Calling ${toNumber} via ${TWILIO_PHONE_NUMBER}`);
+  const targetNumber = TWILIO_TEST_MODE && TWILIO_TEST_TO_NUMBER
+    ? TWILIO_TEST_TO_NUMBER
+    : toNumber;
+  if (TWILIO_TEST_MODE && TWILIO_TEST_TO_NUMBER) {
+    console.log(`[schedule-reminder] TEST MODE ON: routing call ${toNumber} -> ${TWILIO_TEST_TO_NUMBER}`);
+  }
+  console.log(`[schedule-reminder] Calling ${targetNumber} via ${TWILIO_PHONE_NUMBER}`);
 
   // Build medication_ids param for Stream parameter
   let medIdsStreamParam = '';
@@ -259,7 +308,7 @@ async function initiateCall(
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: new URLSearchParams({
-        To: toNumber,
+        To: targetNumber,
         From: TWILIO_PHONE_NUMBER,
         Twiml: twiml,
         StatusCallback: `${webhookBase}/status`,

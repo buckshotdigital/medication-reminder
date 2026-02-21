@@ -152,8 +152,27 @@ serve(async (req) => {
       .single();
 
     if (existingPatient) {
+      // Security: only reuse an existing patient if this caregiver is already linked.
+      // Prevents cross-caregiver linking by guessing a phone number.
+      const { data: existingLink } = await supabase
+        .from('patient_caregivers')
+        .select('patient_id')
+        .eq('patient_id', existingPatient.id)
+        .eq('caregiver_id', caregiver.id)
+        .maybeSingle();
+
+      if (!existingLink) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            error: 'A patient with this phone number already exists under another account.',
+          }),
+          { headers: { ...cors, 'Content-Type': 'application/json' }, status: 409 }
+        );
+      }
+
       patient = existingPatient;
-      console.log('[setup-patient] Using existing patient:', patient.id);
+      console.log('[setup-patient] Using existing linked patient:', patient.id);
     } else {
       const { data: newPatient, error: patientError } = await supabase
         .from('patients')
@@ -196,16 +215,46 @@ serve(async (req) => {
     if (medError) throw medError;
     console.log('[setup-patient] Created medication:', medication.id);
 
-    // Schedule first call
-    const now = new Date();
+    // Schedule first call in patient's timezone
     const [hours, minutes] = reminder_time.split(':').map(Number);
 
-    const firstCall = new Date();
-    firstCall.setHours(hours, minutes, 0, 0);
+    let firstCall: Date;
+    try {
+      const now = new Date();
+      const localNowParts = getZonedDateParts(now, timezone);
+      let targetYear = localNowParts.year;
+      let targetMonth = localNowParts.month;
+      let targetDay = localNowParts.day;
 
-    // If the time has passed today, schedule for tomorrow
-    if (firstCall <= now) {
-      firstCall.setDate(firstCall.getDate() + 1);
+      const nowMinutes = localNowParts.hour * 60 + localNowParts.minute;
+      const reminderMinutes = hours * 60 + minutes;
+
+      // If today's reminder time has already passed in patient's timezone, use tomorrow.
+      if (reminderMinutes <= nowMinutes) {
+        const nextDay = new Date(Date.UTC(targetYear, targetMonth - 1, targetDay));
+        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+        targetYear = nextDay.getUTCFullYear();
+        targetMonth = nextDay.getUTCMonth() + 1;
+        targetDay = nextDay.getUTCDate();
+      }
+
+      firstCall = zonedDateTimeToUtc(
+        targetYear,
+        targetMonth,
+        targetDay,
+        hours,
+        minutes,
+        timezone
+      );
+    } catch (tzError) {
+      // Fallback to server-local scheduling if timezone conversion fails unexpectedly.
+      const now = new Date();
+      firstCall = new Date();
+      firstCall.setHours(hours, minutes, 0, 0);
+      if (firstCall <= now) {
+        firstCall.setDate(firstCall.getDate() + 1);
+      }
+      console.warn('[setup-patient] Timezone conversion failed, using fallback:', tzError);
     }
 
     const { data: scheduledCall, error: scheduleError } = await supabase
@@ -243,3 +292,67 @@ serve(async (req) => {
     );
   }
 });
+
+function getZonedDateParts(date: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+
+  const getPart = (type: string): number => {
+    const value = parts.find(p => p.type === type)?.value;
+    if (!value) throw new Error(`Missing ${type} for timezone ${timeZone}`);
+    return Number(value);
+  };
+
+  return {
+    year: getPart('year'),
+    month: getPart('month'),
+    day: getPart('day'),
+    hour: getPart('hour'),
+    minute: getPart('minute'),
+  };
+}
+
+function getTimeZoneOffsetMinutes(timeZone: string, date: Date): number {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    timeZoneName: 'shortOffset',
+    hour: '2-digit',
+  }).formatToParts(date);
+
+  const tzName = parts.find(p => p.type === 'timeZoneName')?.value || 'GMT+00';
+  const match = tzName.match(/^GMT([+-])(\d{1,2})(?::?(\d{2}))?$/);
+  if (!match) {
+    return 0;
+  }
+
+  const sign = match[1] === '-' ? -1 : 1;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3] || '0');
+  return sign * (hours * 60 + minutes);
+}
+
+function zonedDateTimeToUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone: string
+): Date {
+  // Iterate to account for DST transitions where offset depends on the resulting instant.
+  let utcMillis = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  for (let i = 0; i < 3; i++) {
+    const offsetMinutes = getTimeZoneOffsetMinutes(timeZone, new Date(utcMillis));
+    const nextUtcMillis = Date.UTC(year, month - 1, day, hour, minute, 0, 0) - offsetMinutes * 60_000;
+    if (nextUtcMillis === utcMillis) break;
+    utcMillis = nextUtcMillis;
+  }
+  return new Date(utcMillis);
+}

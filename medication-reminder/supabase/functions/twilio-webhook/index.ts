@@ -76,14 +76,7 @@ serve(async (req) => {
   const isValid = await validateTwilioSignature(req, externalUrl, formParams);
   if (!isValid) {
     console.warn('[twilio-webhook] Twilio signature validation failed');
-    // Allow requests without signature only from internal service calls
-    // (Twilio may not always sign correctly for Edge Functions)
-    // But reject if there's no signature at all AND no form params (likely not from Twilio)
-    const hasTwilioSignature = !!req.headers.get('x-twilio-signature');
-    const hasTwilioParams = !!formParams['CallSid'] || !!formParams['AccountSid'];
-    if (!hasTwilioSignature && !hasTwilioParams && !path.includes('/health')) {
-      return new Response('Unauthorized', { status: 401 });
-    }
+    return new Response('Unauthorized', { status: 401 });
   }
 
   const callSid = formParams['CallSid'] || url.searchParams.get('CallSid');

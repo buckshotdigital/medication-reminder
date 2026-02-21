@@ -10,9 +10,29 @@ interface PatientFormProps {
   onCancel: () => void;
 }
 
+const dayOptions = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 7, label: 'Sun' },
+];
+
 export function PatientForm({ onSuccess, onCancel }: PatientFormProps) {
   const [loading, setLoading] = useState(false);
+  const [reminderDays, setReminderDays] = useState<number[]>([1, 2, 3, 4, 5, 6, 7]);
   const { toast } = useToast();
+
+  function toggleReminderDay(day: number) {
+    setReminderDays(prev => {
+      const next = prev.includes(day)
+        ? prev.filter(d => d !== day)
+        : [...prev, day].sort();
+      return next.length > 0 ? next : prev;
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -28,6 +48,7 @@ export function PatientForm({ onSuccess, onCancel }: PatientFormProps) {
         medication_dosage: form.get('medication_dosage') as string || undefined,
         medication_description: form.get('medication_description') as string || undefined,
         reminder_time: form.get('reminder_time') as string,
+        reminder_days: reminderDays,
         timezone: form.get('timezone') as string || 'America/Toronto',
       });
       toast('Patient created successfully', 'success');
@@ -87,6 +108,7 @@ export function PatientForm({ onSuccess, onCancel }: PatientFormProps) {
         <FormField label="Timezone">
           <Select name="timezone" defaultValue="America/Toronto">
             <option value="America/Toronto">Eastern (Toronto)</option>
+            <option value="America/New_York">Eastern (New York)</option>
             <option value="America/Chicago">Central (Chicago)</option>
             <option value="America/Denver">Mountain (Denver)</option>
             <option value="America/Los_Angeles">Pacific (Los Angeles)</option>
@@ -95,6 +117,25 @@ export function PatientForm({ onSuccess, onCancel }: PatientFormProps) {
           </Select>
         </FormField>
       </div>
+
+      <FormField label="Reminder Days" helper="Select the days this medication should be reminded">
+        <div className="flex flex-wrap gap-2">
+          {dayOptions.map(day => (
+            <button
+              key={day.value}
+              type="button"
+              onClick={() => toggleReminderDay(day.value)}
+              className={
+                reminderDays.includes(day.value)
+                  ? 'px-3 py-1.5 rounded-full text-xs font-medium bg-primary text-primary-foreground'
+                  : 'px-3 py-1.5 rounded-full text-xs font-medium bg-muted text-muted-foreground hover:bg-muted/80'
+              }
+            >
+              {day.label}
+            </button>
+          ))}
+        </div>
+      </FormField>
 
       <div className="flex gap-3">
         <Button type="submit" loading={loading}>
