@@ -45,6 +45,15 @@ function CreditsPageContent() {
   const [autoTopupPack, setAutoTopupPack] = useState(150);
   const [savingAutoTopup, setSavingAutoTopup] = useState(false);
 
+  // Reset loading state when user navigates back via browser (bfcache)
+  useEffect(() => {
+    const handlePageShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setBuyingPack(null);
+    };
+    window.addEventListener('pageshow', handlePageShow);
+    return () => window.removeEventListener('pageshow', handlePageShow);
+  }, []);
+
   // Handle Stripe redirect query params
   useEffect(() => {
     if (searchParams.get('success') === 'true') {
