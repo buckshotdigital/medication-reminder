@@ -360,9 +360,9 @@ export default function PatientDetailPage() {
         )}
       </div>
 
-      {/* Subscription Plan */}
+      {/* Call Plan */}
       <div>
-        <h2 className="font-semibold mb-4">Subscription Plan</h2>
+        <h2 className="font-semibold mb-4">Call Plan</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* Basic Plan Card */}
           <button
@@ -384,7 +384,7 @@ export default function PatientDetailPage() {
               </div>
               <div>
                 <p className="font-semibold">Basic</p>
-                <p className="text-sm text-muted-foreground">$49/month</p>
+                <p className="text-sm text-muted-foreground">5 min max per call</p>
               </div>
               {currentPlan === 'basic' && (
                 <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">Current</span>
@@ -415,7 +415,7 @@ export default function PatientDetailPage() {
               </div>
               <div>
                 <p className="font-semibold">Companionship</p>
-                <p className="text-sm text-muted-foreground">$49/month + credits</p>
+                <p className="text-sm text-muted-foreground">30 min max per call</p>
               </div>
               {currentPlan === 'companionship' && (
                 <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">Current</span>
