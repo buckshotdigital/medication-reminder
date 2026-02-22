@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchPatient, fetchCallLogs, updatePatient, updateMedication, deleteMedication, deletePatient, fetchPatientPlans, updatePatientPlan, fetchCreditBalance } from '@/lib/queries';
+import { fetchPatient, fetchCallLogs, updatePatient, updateMedication, deleteMedication, deletePatient, updatePatientMaxDuration } from '@/lib/queries';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CallTranscript } from '@/components/call-transcript';
@@ -14,8 +14,8 @@ import { Button, Input, Select } from '@/components/form-field';
 import { useToast } from '@/components/toast';
 import { formatDate, formatTime, formatDuration } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-import { useState, useCallback } from 'react';
-import { ArrowLeft, Plus, Pencil, Check, X, Pill, Phone, Power, Trash2, Clock, Heart } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { ArrowLeft, Plus, Pencil, Check, X, Pill, Phone, Power, Trash2, Clock } from 'lucide-react';
 
 const dayLabels = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -70,8 +70,8 @@ export default function PatientDetailPage() {
   const [savingMed, setSavingMed] = useState(false);
   const [togglingMedId, setTogglingMedId] = useState<string | null>(null);
 
-  const [switchingPlan, setSwitchingPlan] = useState(false);
-  const [pendingPlanSwitch, setPendingPlanSwitch] = useState<string | null>(null);
+  const [maxDurationMinutes, setMaxDurationMinutes] = useState<number>(5);
+  const [savingDuration, setSavingDuration] = useState(false);
 
   const { data: patient, isLoading: loadingPatient, refetch: refetchPatient } = useQuery({
     queryKey: ['patient', id],
@@ -83,37 +83,24 @@ export default function PatientDetailPage() {
     queryFn: () => fetchCallLogs(id),
   });
 
-  const { data: patientPlans, refetch: refetchPlans } = useQuery({
-    queryKey: ['patient-plans'],
-    queryFn: fetchPatientPlans,
-  });
-
-  const { data: creditBalance } = useQuery({
-    queryKey: ['credit-balance'],
-    queryFn: fetchCreditBalance,
-  });
-
-  const currentPlan = patientPlans?.find((pp: any) => pp.patient_id === id && pp.is_active)?.plan_id || 'basic';
-
-  const handlePlanClick = useCallback((planId: string) => {
-    if (planId === currentPlan) return;
-    setPendingPlanSwitch(planId);
-  }, [currentPlan]);
-
-  const confirmPlanSwitch = useCallback(async () => {
-    if (!pendingPlanSwitch) return;
-    setSwitchingPlan(true);
-    try {
-      await updatePatientPlan(id, pendingPlanSwitch);
-      await refetchPlans();
-      toast(`Switched to ${pendingPlanSwitch === 'companionship' ? 'Companionship' : 'Basic'} plan`, 'success');
-    } catch (e) {
-      toast('Failed to switch plan: ' + (e as Error).message, 'error');
-    } finally {
-      setSwitchingPlan(false);
-      setPendingPlanSwitch(null);
+  useEffect(() => {
+    if (patient?.max_call_duration_seconds) {
+      setMaxDurationMinutes(Math.round(patient.max_call_duration_seconds / 60));
     }
-  }, [id, pendingPlanSwitch, refetchPlans, toast]);
+  }, [patient?.max_call_duration_seconds]);
+
+  const handleSaveDuration = useCallback(async () => {
+    setSavingDuration(true);
+    try {
+      await updatePatientMaxDuration(id, maxDurationMinutes);
+      await refetchPatient();
+      toast('Max call duration updated', 'success');
+    } catch (e) {
+      toast('Failed to save: ' + (e as Error).message, 'error');
+    } finally {
+      setSavingDuration(false);
+    }
+  }, [id, maxDurationMinutes, refetchPatient, toast]);
 
   const startEditMed = useCallback((med: any) => {
     setEditingMedId(med.id);
@@ -360,104 +347,41 @@ export default function PatientDetailPage() {
         )}
       </div>
 
-      {/* Call Plan */}
+      {/* Max Call Duration */}
       <div>
-        <h2 className="font-semibold mb-4">Call Plan</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Basic Plan Card */}
-          <button
-            onClick={() => handlePlanClick('basic')}
-            disabled={switchingPlan}
-            className={cn(
-              'rounded-2xl p-5 text-left transition-all border-2',
-              currentPlan === 'basic'
-                ? 'border-primary bg-primary/5 shadow-soft-lg'
-                : 'border-border bg-white dark:bg-card shadow-soft hover:border-primary/50'
-            )}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className={cn(
-                'w-10 h-10 rounded-full flex items-center justify-center',
-                currentPlan === 'basic' ? 'bg-primary/10' : 'bg-muted'
-              )}>
-                <Clock className={cn('w-5 h-5', currentPlan === 'basic' ? 'text-primary' : 'text-muted-foreground')} />
-              </div>
-              <div>
-                <p className="font-semibold">Basic</p>
-                <p className="text-sm text-muted-foreground">5 min max per call</p>
-              </div>
-              {currentPlan === 'basic' && (
-                <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">Current</span>
-              )}
+        <h2 className="font-semibold mb-4">Max Call Duration</h2>
+        <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-primary/10">
+              <Clock className="w-5 h-5 text-primary" />
             </div>
-            <p className="text-sm text-muted-foreground">
-              5-minute medication reminder calls. Enough for reminders plus a brief chat.
-            </p>
-          </button>
-
-          {/* Companionship Plan Card */}
-          <button
-            onClick={() => handlePlanClick('companionship')}
-            disabled={switchingPlan}
-            className={cn(
-              'rounded-2xl p-5 text-left transition-all border-2',
-              currentPlan === 'companionship'
-                ? 'border-primary bg-primary/5 shadow-soft-lg'
-                : 'border-border bg-white dark:bg-card shadow-soft hover:border-primary/50'
-            )}
-          >
-            <div className="flex items-center gap-3 mb-3">
-              <div className={cn(
-                'w-10 h-10 rounded-full flex items-center justify-center',
-                currentPlan === 'companionship' ? 'bg-primary/10' : 'bg-muted'
-              )}>
-                <Heart className={cn('w-5 h-5', currentPlan === 'companionship' ? 'text-primary' : 'text-muted-foreground')} />
-              </div>
-              <div>
-                <p className="font-semibold">Companionship</p>
-                <p className="text-sm text-muted-foreground">30 min max per call</p>
-              </div>
-              {currentPlan === 'companionship' && (
-                <span className="ml-auto text-xs font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">Current</span>
-              )}
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Up to 30-minute calls with extended companionship conversation. First 3 minutes free per call, then uses credits.
-            </p>
-          </button>
-        </div>
-
-        {/* Plan Switch Confirmation Modal */}
-        {pendingPlanSwitch && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setPendingPlanSwitch(null)}>
-            <div
-              className="bg-white dark:bg-card rounded-2xl shadow-lg p-6 max-w-md mx-4 animate-slide-up"
-              onClick={e => e.stopPropagation()}
-            >
-              <h3 className="font-semibold text-lg mb-3">Confirm Plan Change</h3>
-              {pendingPlanSwitch === 'companionship' ? (
-                <p className="text-sm text-muted-foreground mb-4">
-                  This patient&apos;s calls will use credits beyond the first 3 minutes.
-                  Your current balance is <span className="font-semibold text-foreground">{Math.floor(Number(creditBalance?.balance_minutes ?? 0))} minutes</span>.
-                  Make sure you have enough credits for extended calls.
-                </p>
-              ) : (
-                <p className="text-sm text-muted-foreground mb-4">
-                  This patient&apos;s calls will be capped at 5 minutes.
-                  Extended companionship conversations will no longer be available for this patient.
-                </p>
-              )}
-              <div className="flex gap-2 justify-end">
-                <Button variant="ghost" size="sm" onClick={() => setPendingPlanSwitch(null)}>
-                  Cancel
-                </Button>
-                <Button size="sm" loading={switchingPlan} onClick={confirmPlanSwitch}>
-                  Confirm Switch
-                </Button>
-              </div>
+            <div className="flex-1">
+              <p className="font-medium">Call time limit</p>
+              <p className="text-sm text-muted-foreground">
+                Maximum duration for each call. Credits are deducted based on actual call length.
+              </p>
             </div>
           </div>
-        )}
+          <div className="flex items-center gap-3 mt-4">
+            <Input
+              type="number"
+              min={1}
+              max={60}
+              value={maxDurationMinutes}
+              onChange={e => setMaxDurationMinutes(Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
+              className="w-24"
+            />
+            <span className="text-sm text-muted-foreground">minutes (1-60)</span>
+            <Button
+              size="sm"
+              loading={savingDuration}
+              onClick={handleSaveDuration}
+              disabled={maxDurationMinutes === Math.round((patient.max_call_duration_seconds || 300) / 60)}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Medications */}

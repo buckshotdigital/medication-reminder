@@ -141,7 +141,7 @@ serve(async (req) => {
           currency: 'usd',
           product_data: {
             name: `MedReminder Credits — ${PACK_LABELS[pack_minutes]}`,
-            description: `${pack_minutes} minutes of companionship call credits`,
+            description: `${pack_minutes} minutes of call credits`,
           },
           unit_amount: priceCents,
         },

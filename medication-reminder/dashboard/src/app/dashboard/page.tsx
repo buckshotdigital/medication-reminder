@@ -17,7 +17,7 @@ interface DashboardStats {
   weekly_adherence: number;
   recent_calls: Array<any>;
   escalations: Array<any>;
-  credits?: { balance_minutes: number; has_companionship_patients: boolean };
+  credits?: { balance_minutes: number };
 }
 
 export default function DashboardPage() {
@@ -52,7 +52,7 @@ export default function DashboardPage() {
   const allGood = totalMissed === 0 && today.pending === 0;
   const hasCritical = totalMissed >= 3;
   const credits = stats.credits;
-  const lowBalance = credits?.has_companionship_patients && (credits?.balance_minutes ?? 0) <= 10;
+  const lowBalance = (credits?.balance_minutes ?? 0) <= 10;
 
   return (
     <div className="space-y-8">
@@ -102,7 +102,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <Coins className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
             <p className="text-rose-800 dark:text-rose-300 font-medium text-sm">
-              Low credit balance: {Math.floor(credits?.balance_minutes ?? 0)} minutes remaining. Companionship calls will fall back to 5-minute basic calls.
+              Low credit balance: {Math.floor(credits?.balance_minutes ?? 0)} minutes remaining. Purchase more credits to keep calls active.
             </p>
           </div>
           <ChevronRight className="w-5 h-5 text-rose-400 shrink-0" />
@@ -141,13 +141,13 @@ export default function DashboardPage() {
       </div>
 
       {/* Credit balance card */}
-      {credits?.has_companionship_patients && (
+      {credits && (
         <Link
           href="/dashboard/credits"
           className="rounded-2xl shadow-soft bg-white dark:bg-card p-6 hover:shadow-soft-lg transition-shadow group block"
         >
           <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold">Companionship Credits</h2>
+            <h2 className="font-semibold">Call Credits</h2>
             <span className="text-sm text-primary group-hover:underline">Manage</span>
           </div>
           <div className="flex items-center gap-4">

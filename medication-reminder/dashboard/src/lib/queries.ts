@@ -37,7 +37,7 @@ export async function fetchDashboardStats() {
   weekStart.setUTCDate(weekStart.getUTCDate() - 7);
 
   // Run all queries in parallel (including recent calls, escalations, and credits)
-  const [callsResult, pendingResult, weekResult, patientsResult, recentResult, escalationsResult, balanceResult, companionshipResult] = await Promise.all([
+  const [callsResult, pendingResult, weekResult, patientsResult, recentResult, escalationsResult, balanceResult] = await Promise.all([
     // Today's call logs
     supabase
       .from('reminder_call_logs')
@@ -80,13 +80,6 @@ export async function fetchDashboardStats() {
       .from('credit_balances')
       .select('balance_minutes')
       .maybeSingle(),
-    // Whether caregiver has at least one active companionship plan
-    supabase
-      .from('patient_plans')
-      .select('id')
-      .eq('plan_id', 'companionship')
-      .eq('is_active', true)
-      .limit(1),
   ]);
 
   // Check for errors
@@ -119,7 +112,6 @@ export async function fetchDashboardStats() {
   const escalations = escalationsResult.error ? [] : (escalationsResult.data || []);
   const credits = {
     balance_minutes: Number(balanceResult.data?.balance_minutes || 0),
-    has_companionship_patients: (companionshipResult.data || []).length > 0,
   };
 
   return {
@@ -374,53 +366,13 @@ export async function fetchCreditPurchases() {
   return data;
 }
 
-export async function fetchPatientPlans() {
+export async function updatePatientMaxDuration(patientId: string, minutes: number) {
   const supabase = getSupabase();
-  const { data, error } = await supabase
-    .from('patient_plans')
-    .select('*, patients(name), plans(*)')
-    .eq('is_active', true)
-    .order('created_at', { ascending: false });
-
-  if (error) throw error;
-  return data;
-}
-
-export async function updatePatientPlan(patientId: string, planId: string) {
-  const supabase = getSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error('Not authenticated');
-
-  // Get caregiver id
-  const { data: caregiver } = await supabase
-    .from('caregivers')
-    .select('id')
-    .eq('auth_user_id', user.id)
-    .single();
-
-  if (!caregiver) throw new Error('Caregiver profile not found');
-
-  // Deactivate existing plan for this patient
-  await supabase
-    .from('patient_plans')
-    .update({ is_active: false, ended_at: new Date().toISOString() })
-    .eq('patient_id', patientId)
-    .eq('caregiver_id', caregiver.id)
-    .eq('is_active', true);
-
-  // Insert new plan assignment
+  const seconds = Math.max(60, Math.min(3600, minutes * 60));
   const { error } = await supabase
-    .from('patient_plans')
-    .upsert({
-      patient_id: patientId,
-      caregiver_id: caregiver.id,
-      plan_id: planId,
-      is_active: true,
-      started_at: new Date().toISOString(),
-      ended_at: null,
-    }, {
-      onConflict: 'patient_id,caregiver_id',
-    });
+    .from('patients')
+    .update({ max_call_duration_seconds: seconds })
+    .eq('id', patientId);
 
   if (error) throw error;
 }
@@ -619,7 +571,7 @@ export async function fetchCareTasks() {
   const threeDaysAgo = new Date();
   threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
 
-  const [escalationsResult, missedResult, overdueCallsResult, refillResult, balanceResult, companionshipResult] = await Promise.all([
+  const [escalationsResult, missedResult, overdueCallsResult, refillResult, balanceResult] = await Promise.all([
     supabase
       .from('escalation_events')
       .select('id, level, type, details, created_at, patients(name)')
@@ -651,12 +603,6 @@ export async function fetchCareTasks() {
       .from('credit_balances')
       .select('balance_minutes')
       .maybeSingle(),
-    supabase
-      .from('patient_plans')
-      .select('id')
-      .eq('plan_id', 'companionship')
-      .eq('is_active', true)
-      .limit(1),
   ]);
 
   const tasks: Array<{
@@ -723,14 +669,13 @@ export async function fetchCareTasks() {
     }
   }
 
-  const hasCompanionship = (companionshipResult.data || []).length > 0;
   const balanceMinutes = Number(balanceResult.data?.balance_minutes || 0);
-  if (hasCompanionship && balanceMinutes <= 10) {
+  if (balanceMinutes <= 10) {
     tasks.push({
       id: 'low-credit',
       type: 'low_credit',
       priority: balanceMinutes <= 5 ? 'high' : 'medium',
-      title: 'Companionship credits are low',
+      title: 'Call credits are low',
       subtitle: `${Math.floor(balanceMinutes)} minutes remaining`,
       created_at: new Date().toISOString(),
     });

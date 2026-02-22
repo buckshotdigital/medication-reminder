@@ -245,14 +245,14 @@ serve(async (req) => {
         if (callLog) {
           const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-          // Credit deduction for companionship plans
+          // Credit deduction for all calls
           try {
             const callDuration = callLog.duration_seconds || (duration ? parseInt(duration) : 0);
             const { data: planData } = await supabase.rpc('get_patient_plan', {
               p_patient_id: callLog.patient_id,
             });
 
-            if (planData && planData.length > 0 && planData[0].plan_id === 'companionship') {
+            if (planData && planData.length > 0) {
               const plan = planData[0];
               const { data: deductResult } = await supabase.rpc('deduct_credits', {
                 p_caregiver_id: plan.caregiver_id,
@@ -260,7 +260,7 @@ serve(async (req) => {
                 p_call_log_id: callLog.id,
                 p_call_sid: callSid,
                 p_total_duration_seconds: callDuration,
-                p_free_seconds: plan.free_seconds_per_call,
+                p_free_seconds: 0,
               });
 
               if (deductResult && deductResult.length > 0) {
@@ -447,7 +447,7 @@ async function sendLowBalanceAlert(caregiverId: string, balanceMinutes: number) 
 
     if (!caregiver?.phone_number) return;
 
-    const message = `MedReminder: Your companionship credit balance is low (${Math.floor(balanceMinutes)} minutes remaining). Purchase more credits in your dashboard to keep extended calls active.`;
+    const message = `MedReminder: Your call credit balance is low (${Math.floor(balanceMinutes)} minutes remaining). Purchase more credits in your dashboard to keep calls active.`;
 
     await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,

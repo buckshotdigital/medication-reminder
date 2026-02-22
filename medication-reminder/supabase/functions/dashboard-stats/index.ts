@@ -162,8 +162,8 @@ serve(async (req) => {
       // escalation_events table may not exist yet
     }
 
-    // Get credit balance and companionship patient count
-    let credits = { balance_minutes: 0, has_companionship_patients: false };
+    // Get credit balance
+    let credits = { balance_minutes: 0 };
     try {
       const { data: balanceData } = await supabase
         .from('credit_balances')
@@ -174,16 +174,6 @@ serve(async (req) => {
       if (balanceData) {
         credits.balance_minutes = Number(balanceData.balance_minutes) || 0;
       }
-
-      const { data: companionshipPlans } = await supabase
-        .from('patient_plans')
-        .select('id')
-        .eq('caregiver_id', caregiver.id)
-        .eq('plan_id', 'companionship')
-        .eq('is_active', true)
-        .limit(1);
-
-      credits.has_companionship_patients = (companionshipPlans?.length || 0) > 0;
     } catch {
       // credit tables may not exist yet
     }

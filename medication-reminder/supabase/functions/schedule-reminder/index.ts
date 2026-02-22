@@ -148,28 +148,25 @@ serve(async (req) => {
           continue;
         }
 
-        // Look up patient's plan for duration cap
-        let maxDuration = 300; // Default: 5 minutes (basic)
+        // Look up patient's max call duration, cap by available credits
+        let maxDuration = 300; // Default: 5 minutes
         try {
           const { data: planData } = await supabase.rpc('get_patient_plan', {
             p_patient_id: call.patients.id,
           });
           if (planData && planData.length > 0) {
             const plan = planData[0];
-            if (plan.plan_id === 'companionship') {
-              if (plan.balance_minutes > 0) {
-                // Cap by available credits + free minutes
-                const creditSeconds = Math.floor(plan.balance_minutes * 60);
-                maxDuration = Math.min(plan.max_call_duration_seconds, creditSeconds + plan.free_seconds_per_call);
-              } else {
-                // No credits: fall back to basic duration
-                maxDuration = 300;
-              }
+            maxDuration = plan.max_call_duration_seconds;
+            // Cap by available credits (1 credit minute = 60 seconds)
+            if (plan.balance_minutes > 0) {
+              const creditSeconds = Math.floor(plan.balance_minutes * 60);
+              maxDuration = Math.min(maxDuration, creditSeconds);
             } else {
-              maxDuration = plan.max_call_duration_seconds;
+              // No credits: use short fallback
+              maxDuration = Math.min(maxDuration, 60);
             }
           }
-          console.log(`[schedule-reminder] Plan for ${call.patients.name}: maxDuration=${maxDuration}s`);
+          console.log(`[schedule-reminder] Patient ${call.patients.name}: maxDuration=${maxDuration}s`);
         } catch (planErr) {
           console.warn('[schedule-reminder] Plan lookup failed, using default 300s:', planErr);
         }
