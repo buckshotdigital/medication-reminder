@@ -1,5 +1,5 @@
 {
-  "name": "Medication Reminder Assistant",
+  "name": "GentleRing Assistant",
   "conversation_config": {
     "agent": {
       "prompt": {
@@ -20,8 +20,8 @@
       "optimize_streaming_latency": 3
     },
     "turn": {
-      "turn_timeout": 10,
-      "silence_threshold": 0.5
+      "turn_timeout": 8,
+      "silence_threshold": 1.0
     }
   },
   "platform_settings": {
