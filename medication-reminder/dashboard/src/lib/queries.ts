@@ -384,7 +384,7 @@ export async function fetchCreditPurchases() {
 
 export async function updatePatientMaxDuration(patientId: string, minutes: number) {
   const supabase = getSupabase();
-  const seconds = Math.max(60, Math.min(3600, minutes * 60));
+  const seconds = Math.max(60, Math.min(1800, minutes * 60));
   const { error } = await supabase
     .from('patients')
     .update({ max_call_duration_seconds: seconds })

@@ -366,12 +366,12 @@ export default function PatientDetailPage() {
             <Input
               type="number"
               min={1}
-              max={60}
+              max={30}
               value={maxDurationMinutes}
-              onChange={e => setMaxDurationMinutes(Math.max(1, Math.min(60, Number(e.target.value) || 1)))}
+              onChange={e => setMaxDurationMinutes(Math.max(1, Math.min(30, Number(e.target.value) || 1)))}
               className="w-24"
             />
-            <span className="text-sm text-muted-foreground">minutes (1-60)</span>
+            <span className="text-sm text-muted-foreground">minutes (1-30)</span>
             <Button
               size="sm"
               loading={savingDuration}
