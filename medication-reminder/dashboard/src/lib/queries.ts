@@ -11,25 +11,32 @@ function getSupabase() {
  */
 export async function ensureCaregiverExists() {
   const supabase = getSupabase();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  const { data: { user }, error: userError } = await supabase.auth.getUser();
+  if (!user) {
+    console.error('[ensureCaregiverExists] No user found', userError);
+    return;
+  }
 
-  const { data: existing } = await supabase
+  const { data: existing, error: selectError } = await supabase
     .from('caregivers')
     .select('id')
     .eq('auth_user_id', user.id)
     .single();
 
   if (!existing) {
-    await supabase.from('caregivers').upsert(
-      {
-        name: user.email?.split('@')[0] || 'Caregiver',
-        email: user.email,
-        phone_number: '',
-        auth_user_id: user.id,
-      },
-      { onConflict: 'auth_user_id' }
-    );
+    console.log('[ensureCaregiverExists] No caregiver found, creating for', user.email);
+    const { data: inserted, error: insertError } = await supabase.from('caregivers').insert({
+      name: user.email?.split('@')[0] || 'Caregiver',
+      email: user.email,
+      phone_number: '',
+      auth_user_id: user.id,
+    }).select('id').single();
+
+    if (insertError) {
+      console.error('[ensureCaregiverExists] Insert failed:', insertError);
+    } else {
+      console.log('[ensureCaregiverExists] Caregiver created:', inserted?.id);
+    }
   }
 }
 

@@ -18,7 +18,8 @@ import {
   Pill,
   ClipboardList,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { ensureCaregiverExists } from '@/lib/queries';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -39,6 +40,14 @@ export default function DashboardLayout({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const caregiverChecked = useRef(false);
+
+  useEffect(() => {
+    if (!caregiverChecked.current) {
+      caregiverChecked.current = true;
+      ensureCaregiverExists();
+    }
+  }, []);
 
   async function handleSignOut() {
     const supabase = createClient();
