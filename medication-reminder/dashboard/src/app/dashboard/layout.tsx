@@ -56,7 +56,7 @@ export default function DashboardLayout({
             <Link href="/dashboard" className="flex items-center gap-2">
               <Pill className="w-5 h-5 text-primary" />
               <span className="font-semibold text-lg text-foreground">
-                MedReminder
+                GentleRing
               </span>
             </Link>
 

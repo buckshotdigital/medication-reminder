@@ -140,7 +140,7 @@ serve(async (req) => {
         price_data: {
           currency: 'usd',
           product_data: {
-            name: `MedReminder Credits — ${PACK_LABELS[pack_minutes]}`,
+            name: `GentleRing Credits — ${PACK_LABELS[pack_minutes]}`,
             description: `${pack_minutes} minutes of call credits`,
           },
           unit_amount: priceCents,

@@ -213,7 +213,7 @@ function CreditsPageContent() {
                 You're on a free trial
               </h3>
               <p className="text-sm text-emerald-700 dark:text-emerald-300 mt-1">
-                You have {Math.floor(balanceMinutes)} free minutes to try MedReminder.
+                You have {Math.floor(balanceMinutes)} free minutes to try GentleRing.
                 Add a patient and schedule a reminder call to see it in action.
                 {balanceMinutes <= 5 && ' Your trial minutes are running low — purchase a credit pack below to keep going.'}
               </p>

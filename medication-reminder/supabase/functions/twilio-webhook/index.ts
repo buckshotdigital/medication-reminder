@@ -447,7 +447,7 @@ async function sendLowBalanceAlert(caregiverId: string, balanceMinutes: number) 
 
     if (!caregiver?.phone_number) return;
 
-    const message = `MedReminder: Your call credit balance is low (${Math.floor(balanceMinutes)} minutes remaining). Purchase more credits in your dashboard to keep calls active.`;
+    const message = `GentleRing: Your call credit balance is low (${Math.floor(balanceMinutes)} minutes remaining). Purchase more credits in your dashboard to keep calls active.`;
 
     await fetch(
       `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`,
@@ -586,7 +586,7 @@ async function alertCaregiver(patientId: string, reason: string) {
           body: new URLSearchParams({
             To: caregiver.phone_number,
             From: TWILIO_PHONE_NUMBER,
-            Body: `Medication Reminder Alert: ${patientName} - ${reason}. Please check in on them.`,
+            Body: `GentleRing Alert: ${patientName} - ${reason}. Please check in on them.`,
           }),
         }
       );

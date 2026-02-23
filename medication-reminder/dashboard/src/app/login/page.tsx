@@ -170,7 +170,7 @@ export default function LoginPage() {
               <Pill className="w-6 h-6 text-primary" />
             </div>
             <h1 className="text-2xl font-bold text-foreground">
-              MedReminder
+              GentleRing
             </h1>
             <p className="text-muted-foreground mt-1 text-sm">
               {authMode === 'signup'

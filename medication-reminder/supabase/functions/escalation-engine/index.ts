@@ -165,7 +165,7 @@ serve(async (req) => {
         if (cg?.phone_number && cg?.notification_prefs?.sms_alerts !== false) {
           await sendSMS(
             cg.phone_number,
-            `Medication Reminder: ${patient.name} missed their dose today. This is their first consecutive miss. Please check in on them.`
+            `GentleRing: ${patient.name} missed their dose today. This is their first consecutive miss. Please check in on them.`
           );
           actions.push(`SMS sent to primary caregiver: ${cg.name}`);
         }
@@ -235,7 +235,7 @@ async function makeEscalationCall(to: string, patientName: string, misses: numbe
 
   // Use a simple TwiML Say for the escalation call
   const twiml = encodeURIComponent(
-    `<Response><Say voice="Polly.Amy">This is an urgent medication reminder alert. ${patientName} has missed ${misses} consecutive medication doses and may need your help. Please check on them as soon as possible. Thank you.</Say></Response>`
+    `<Response><Say voice="Polly.Amy">This is an urgent alert from GentleRing. ${patientName} has missed ${misses} consecutive medication doses and may need your help. Please check on them as soon as possible. Thank you.</Say></Response>`
   );
 
   try {
@@ -257,7 +257,7 @@ async function makeEscalationCall(to: string, patientName: string, misses: numbe
         body: new URLSearchParams({
           To: targetNumber,
           From: TWILIO_PHONE_NUMBER,
-          Twiml: `<Response><Say voice="Polly.Amy">This is an urgent medication reminder alert. ${patientName} has missed ${misses} consecutive medication doses and may need your help. Please check on them as soon as possible. Thank you.</Say></Response>`,
+          Twiml: `<Response><Say voice="Polly.Amy">This is an urgent alert from GentleRing. ${patientName} has missed ${misses} consecutive medication doses and may need your help. Please check on them as soon as possible. Thank you.</Say></Response>`,
           Timeout: '30',
         }),
       }

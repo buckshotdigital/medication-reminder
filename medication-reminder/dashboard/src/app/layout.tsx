@@ -7,8 +7,8 @@ import { ErrorBoundary } from '@/components/error-boundary';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata: Metadata = {
-  title: 'Medication Reminder Dashboard',
-  description: 'Monitor medication adherence for your loved ones',
+  title: 'GentleRing — Caregiver Dashboard',
+  description: 'AI voice agent for elder medication reminders and companionship calls',
 };
 
 export default function RootLayout({

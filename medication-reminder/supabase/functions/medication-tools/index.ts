@@ -246,7 +246,7 @@ async function alertCaregiver(patientId: string, parameters: any) {
           body: new URLSearchParams({
             To: caregiver.phone_number,
             From: TWILIO_PHONE_NUMBER,
-            Body: `${prefix}Medication Reminder Alert for ${patientName}: ${reason}`,
+            Body: `${prefix}GentleRing Alert for ${patientName}: ${reason}`,
           }),
         }
       );
