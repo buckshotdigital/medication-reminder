@@ -43,27 +43,7 @@ export async function ensureCaregiverExists() {
 export async function fetchDashboardStats() {
   const supabase = getSupabase();
 
-  // Preferred path: fetch pre-aggregated stats from edge function.
-  // This includes credits + escalations and keeps dashboard math consistent.
-  try {
-    const { data: { session } } = await supabase.auth.refreshSession();
-    if (session) {
-      const response = await fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/dashboard-stats`,
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-        }
-      );
-      if (response.ok) {
-        return response.json();
-      }
-    }
-  } catch {
-    // Fallback to direct table queries below.
-  }
+  // Query tables directly via Supabase client (uses cookie-based auth)
 
   // Use UTC-based date boundaries for consistency
   const now = new Date();
