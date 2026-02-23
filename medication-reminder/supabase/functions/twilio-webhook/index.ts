@@ -1,7 +1,6 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 import { encode as encodeBase64 } from 'https://deno.land/std@0.168.0/encoding/base64.ts';
-import Stripe from 'https://esm.sh/stripe@13.10.0?target=deno&no-check';
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL')!,
@@ -502,36 +501,43 @@ async function tryAutoTopup(caregiverId: string, currentBalance: number) {
       return;
     }
 
-    const stripe = new Stripe(stripeSecretKey, { apiVersion: '2023-10-16' });
+    const stripeAuth = 'Basic ' + btoa(`${stripeSecretKey}:`);
 
     // Get saved payment methods
-    const paymentMethods = await stripe.paymentMethods.list({
-      customer: caregiver.stripe_customer_id,
-      type: 'card',
-    });
+    const pmResponse = await fetch(
+      `https://api.stripe.com/v1/payment_methods?customer=${caregiver.stripe_customer_id}&type=card`,
+      { headers: { 'Authorization': stripeAuth } }
+    );
+    const pmData = await pmResponse.json();
 
-    if (paymentMethods.data.length === 0) {
+    if (!pmData.data || pmData.data.length === 0) {
       console.log('[twilio-webhook] Auto-topup: no saved payment methods for:', caregiverId);
       return;
     }
 
     // Create off-session PaymentIntent
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: settings.pack_price_cents,
-      currency: 'usd',
-      customer: caregiver.stripe_customer_id,
-      payment_method: paymentMethods.data[0].id,
-      off_session: true,
-      confirm: true,
-      description: `Auto top-up: ${settings.pack_label}`,
-      metadata: {
-        caregiver_id: caregiverId,
-        pack_minutes: String(settings.pack_minutes),
-        pack_price_cents: String(settings.pack_price_cents),
-        pack_label: settings.pack_label,
-        auto_topup: 'true',
+    const piResponse = await fetch('https://api.stripe.com/v1/payment_intents', {
+      method: 'POST',
+      headers: {
+        'Authorization': stripeAuth,
+        'Content-Type': 'application/x-www-form-urlencoded',
       },
+      body: new URLSearchParams({
+        amount: String(settings.pack_price_cents),
+        currency: 'usd',
+        customer: caregiver.stripe_customer_id,
+        payment_method: pmData.data[0].id,
+        off_session: 'true',
+        confirm: 'true',
+        description: `Auto top-up: ${settings.pack_label}`,
+        'metadata[caregiver_id]': caregiverId,
+        'metadata[pack_minutes]': String(settings.pack_minutes),
+        'metadata[pack_price_cents]': String(settings.pack_price_cents),
+        'metadata[pack_label]': settings.pack_label,
+        'metadata[auto_topup]': 'true',
+      }),
     });
+    const paymentIntent = await piResponse.json();
 
     if (paymentIntent.status === 'succeeded') {
       // Add credits via RPC
