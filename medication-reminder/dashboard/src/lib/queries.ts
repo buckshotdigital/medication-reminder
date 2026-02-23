@@ -46,7 +46,7 @@ export async function fetchDashboardStats() {
   // Preferred path: fetch pre-aggregated stats from edge function.
   // This includes credits + escalations and keeps dashboard math consistent.
   try {
-    const { data: { session } } = await supabase.auth.getSession();
+    const { data: { session } } = await supabase.auth.refreshSession();
     if (session) {
       const response = await fetch(
         `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/dashboard-stats`,
