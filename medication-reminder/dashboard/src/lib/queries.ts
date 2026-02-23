@@ -4,6 +4,35 @@ function getSupabase() {
   return createClient();
 }
 
+/**
+ * Ensure a caregiver record exists for the current auth user.
+ * Called after signup/login to cover paths that skip /auth/callback.
+ * The DB trigger `grant_trial_credits` fires on INSERT to grant 15 free minutes.
+ */
+export async function ensureCaregiverExists() {
+  const supabase = getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return;
+
+  const { data: existing } = await supabase
+    .from('caregivers')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  if (!existing) {
+    await supabase.from('caregivers').upsert(
+      {
+        name: user.email?.split('@')[0] || 'Caregiver',
+        email: user.email,
+        phone_number: '',
+        auth_user_id: user.id,
+      },
+      { onConflict: 'auth_user_id' }
+    );
+  }
+}
+
 export async function fetchDashboardStats() {
   const supabase = getSupabase();
 

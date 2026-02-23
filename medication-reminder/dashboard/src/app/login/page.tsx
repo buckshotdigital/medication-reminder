@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { ensureCaregiverExists } from '@/lib/queries';
 import { Pill, Mail, Lock, ArrowLeft, KeyRound } from 'lucide-react';
 import { Button } from '@/components/form-field';
 import { Input } from '@/components/form-field';
@@ -52,8 +53,9 @@ export default function LoginPage() {
         return;
       }
 
-      // If session is returned, user was auto-confirmed — redirect immediately
+      // If session is returned, user was auto-confirmed — ensure caregiver record + redirect
       if (signUpData.session) {
+        await ensureCaregiverExists();
         window.location.href = '/dashboard';
         return;
       }
@@ -81,6 +83,7 @@ export default function LoginPage() {
         return;
       }
 
+      await ensureCaregiverExists();
       window.location.href = '/dashboard';
       return;
     } else {
@@ -95,6 +98,7 @@ export default function LoginPage() {
         return;
       }
 
+      await ensureCaregiverExists();
       window.location.href = '/dashboard';
       return;
     }
