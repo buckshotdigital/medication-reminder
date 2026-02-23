@@ -38,8 +38,9 @@ serve(async (req) => {
       );
     }
 
-    // Create a client with the user's token to verify identity
-    const userClient = createClient(supabaseUrl, serviceRoleKey, {
+    // Verify the user's token
+    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const userClient = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: `Bearer ${token}` } },
     });
     const { data: { user }, error: authError } = await userClient.auth.getUser();
