@@ -321,26 +321,30 @@ export default function LoginPage() {
                 {authMode === 'signup' ? 'Start Free Trial' : 'Sign In'}
               </Button>
 
-              <div className="relative my-2">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-border/60" />
-                </div>
-                <div className="relative flex justify-center text-xs">
-                  <span className="bg-card px-2 text-muted-foreground">or</span>
-                </div>
-              </div>
+              {authMode === 'login' && (
+                <>
+                  <div className="relative my-2">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-border/60" />
+                    </div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="bg-card px-2 text-muted-foreground">or</span>
+                    </div>
+                  </div>
 
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={handleMagicLink}
-                loading={magicLinkLoading}
-                disabled={anyLoading || !email.trim()}
-                className="w-full"
-              >
-                <Mail className="w-4 h-4" />
-                Send Magic Link
-              </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={handleMagicLink}
+                    loading={magicLinkLoading}
+                    disabled={anyLoading || !email.trim()}
+                    className="w-full"
+                  >
+                    <Mail className="w-4 h-4" />
+                    Send Magic Link
+                  </Button>
+                </>
+              )}
 
               <p className="text-center text-sm text-muted-foreground">
                 {authMode === 'login' ? (
