@@ -157,8 +157,15 @@ export async function fetchDashboardStats() {
   const unreached = todayCalls.filter(c =>
     unreachedStatuses.includes(c.status)
   ).length;
+  // Only count calls initiated within the last 30 minutes as "in progress" —
+  // older initiated/answered calls with no result are stale (status callback failed)
+  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
   const pending = pendingCalls.length +
-    todayCalls.filter(c => ['initiated', 'answered'].includes(c.status) && c.medication_taken === null).length;
+    todayCalls.filter(c =>
+      ['initiated', 'answered'].includes(c.status) &&
+      c.medication_taken === null &&
+      c.created_at >= thirtyMinAgo
+    ).length;
 
   const weekTotal = weekCalls.length;
   const weekTaken = weekCalls.filter(c => c.medication_taken === true).length;
