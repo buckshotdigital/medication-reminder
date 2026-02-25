@@ -211,6 +211,18 @@ export async function fetchPatient(id: string) {
   return data;
 }
 
+export async function fetchScheduledCalls() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('scheduled_reminder_calls')
+    .select('*, patients(name), medications(name, dosage)')
+    .eq('status', 'pending')
+    .order('scheduled_for', { ascending: true });
+
+  if (error) throw error;
+  return data;
+}
+
 export async function fetchCallLogs(patientId?: string) {
   const supabase = getSupabase();
   let query = supabase

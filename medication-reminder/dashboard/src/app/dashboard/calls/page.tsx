@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchCallLogs } from '@/lib/queries';
+import { fetchCallLogs, fetchScheduledCalls } from '@/lib/queries';
 import { CallTranscript } from '@/components/call-transcript';
 import { StatusBadge, getCallStatusVariant, getCallStatusLabel } from '@/components/status-badge';
 import { Avatar } from '@/components/avatar';
@@ -11,7 +11,7 @@ import { Input, Select } from '@/components/form-field';
 import { formatDate, formatTime, formatDuration, relativeTime, cn } from '@/lib/utils';
 import { useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Phone, Search, PhoneOff, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { Phone, Search, PhoneOff, CalendarClock, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 
 interface CallGroup {
   key: string;
@@ -63,6 +63,11 @@ function CallsContent() {
   const { data: calls, isLoading, error, refetch } = useQuery({
     queryKey: ['calls'],
     queryFn: () => fetchCallLogs(),
+  });
+
+  const { data: scheduledCalls, isLoading: scheduledLoading } = useQuery({
+    queryKey: ['scheduled-calls'],
+    queryFn: () => fetchScheduledCalls(),
   });
 
   const [search, setSearch] = useState('');
@@ -156,6 +161,7 @@ function CallsContent() {
             <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">All Statuses</option>
               <option value="taken">Taken</option>
+              <option value="scheduled">Scheduled</option>
               <option value="not_taken">Not Taken</option>
               <option value="unreached">Unreached</option>
             </Select>
@@ -178,7 +184,58 @@ function CallsContent() {
         </div>
       )}
 
-      {isLoading ? (
+      {/* Scheduled calls view */}
+      {statusFilter === 'scheduled' ? (
+        scheduledLoading ? (
+          <CallListSkeleton />
+        ) : scheduledCalls && scheduledCalls.length > 0 ? (
+          <div className="space-y-3">
+            {scheduledCalls.map((sc: any) => (
+              <div
+                key={sc.id}
+                className="rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4 border-l-blue-400"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={sc.patients?.name || 'Unknown'} size="sm" />
+                    <div>
+                      <span className="font-medium">{sc.patients?.name || 'Unknown'}</span>
+                      <p className="text-sm text-muted-foreground">
+                        {sc.medications?.name}
+                        {sc.medications?.dosage && ` (${sc.medications.dosage})`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400">
+                      <CalendarClock className="w-3 h-3" />
+                      Scheduled
+                    </span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground mt-2 ml-12">
+                  <span>
+                    {new Date(sc.scheduled_for).toLocaleTimeString('en-US', {
+                      hour: 'numeric',
+                      minute: '2-digit',
+                      hour12: true,
+                    })}
+                  </span>
+                  {sc.attempt_number > 1 && (
+                    <span>Attempt #{sc.attempt_number}</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            icon={CalendarClock}
+            title="No scheduled calls"
+            description="Calls will appear here when medications are scheduled for today"
+          />
+        )
+      ) : isLoading ? (
         <CallListSkeleton />
       ) : filtered.length > 0 ? (
         <div className="space-y-3">
