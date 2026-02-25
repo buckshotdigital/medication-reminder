@@ -631,6 +631,7 @@ export default function PatientDetailPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Remaining Doses</label>
+                      <p className="text-xs text-muted-foreground mb-1.5">Decreases by 1 each time patient confirms taken</p>
                       <Input
                         type="number"
                         min="0"
@@ -641,6 +642,7 @@ export default function PatientDetailPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Refill Alert Threshold</label>
+                      <p className="text-xs text-muted-foreground mb-1.5">Alert when doses remaining drops to this number</p>
                       <Input
                         type="number"
                         min="0"
@@ -651,6 +653,7 @@ export default function PatientDetailPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Last Refill Date</label>
+                      <p className="text-xs text-muted-foreground mb-1.5">When this prescription was last refilled</p>
                       <Input
                         type="date"
                         value={editMed.last_refill_date}
@@ -681,7 +684,8 @@ export default function PatientDetailPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium mb-2">Follow-up Calls</label>
+                    <label className="block text-sm font-medium mb-1">Follow-up Calls</label>
+                    <p className="text-xs text-muted-foreground mb-2">Auto-retry on voicemail/no answer, and callback if patient says not taken</p>
                     <div className="grid grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs text-muted-foreground mb-1">Max retries</label>

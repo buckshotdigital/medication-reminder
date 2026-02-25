@@ -404,6 +404,29 @@ serve(async (req) => {
           } else {
             debug('WARN: callSid is null, cannot update medication_taken=true');
           }
+
+          // Decrement remaining doses if refill tracking is active
+          if (medicationId) {
+            try {
+              const { data: medDoses } = await supabase
+                .from('medications')
+                .select('refill_remaining_doses')
+                .eq('id', medicationId)
+                .single();
+
+              if (medDoses && medDoses.refill_remaining_doses != null && medDoses.refill_remaining_doses > 0) {
+                const newCount = medDoses.refill_remaining_doses - 1;
+                await supabase
+                  .from('medications')
+                  .update({ refill_remaining_doses: newCount })
+                  .eq('id', medicationId);
+                debug(`Decremented remaining doses to ${newCount}`);
+              }
+            } catch (e) {
+              debug(`WARN: Failed to decrement doses: ${(e as Error).message}`);
+            }
+          }
+
           result = { confirmed: true, message: 'Medication logged as taken' };
           break;
 
