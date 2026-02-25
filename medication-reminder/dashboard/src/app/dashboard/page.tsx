@@ -78,19 +78,31 @@ export default function DashboardPage() {
           </p>
         </div>
       ) : hasCritical ? (
-        <div className="rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-800/30 p-4 flex items-center gap-3 animate-fade-in">
-          <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
-          <p className="text-rose-800 dark:text-rose-300 font-medium text-sm">
-            {totalMissed} missed reminders need your attention
-          </p>
-        </div>
+        <Link
+          href="/dashboard/tasks"
+          className="rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-800/30 p-4 flex items-center justify-between gap-3 animate-fade-in hover:shadow-soft transition-shadow"
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
+            <p className="text-rose-800 dark:text-rose-300 font-medium text-sm">
+              {totalMissed} missed reminders need your attention
+            </p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-rose-400 shrink-0" />
+        </Link>
       ) : totalMissed > 0 ? (
-        <div className="rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-800/30 p-4 flex items-center gap-3 animate-fade-in">
-          <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
-          <p className="text-amber-800 dark:text-amber-300 font-medium text-sm">
-            {totalMissed} missed reminder{totalMissed !== 1 ? 's' : ''} need{totalMissed === 1 ? 's' : ''} your attention
-          </p>
-        </div>
+        <Link
+          href="/dashboard/tasks"
+          className="rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-800/30 p-4 flex items-center justify-between gap-3 animate-fade-in hover:shadow-soft transition-shadow"
+        >
+          <div className="flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <p className="text-amber-800 dark:text-amber-300 font-medium text-sm">
+              {totalMissed} missed reminder{totalMissed !== 1 ? 's' : ''} need{totalMissed === 1 ? 's' : ''} your attention
+            </p>
+          </div>
+          <ChevronRight className="w-5 h-5 text-amber-400 shrink-0" />
+        </Link>
       ) : null}
 
       {/* Low credit balance warning */}
@@ -111,10 +123,10 @@ export default function DashboardPage() {
 
       {/* Status cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatusCard label="Taken" count={today.taken} variant="taken" />
-        <StatusCard label="Pending" count={today.pending} variant="pending" />
-        <StatusCard label="Missed" count={today.missed} variant="missed" />
-        <StatusCard label="Unreached" count={today.unreached} variant="unreached" />
+        <StatusCard label="Taken" count={today.taken} variant="taken" href="/dashboard/calls?status=taken" />
+        <StatusCard label="Pending" count={today.pending} variant="pending" href="/dashboard/calls?status=pending" />
+        <StatusCard label="Missed" count={today.missed} variant="missed" href="/dashboard/calls?status=missed" />
+        <StatusCard label="Unreached" count={today.unreached} variant="unreached" href="/dashboard/calls?status=unreached" />
       </div>
 
       {/* Weekly adherence bar */}

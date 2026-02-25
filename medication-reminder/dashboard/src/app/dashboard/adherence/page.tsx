@@ -12,20 +12,23 @@ import Link from 'next/link';
 type SortKey = 'patient_name' | 'adherence_percentage' | 'taken_count' | 'missed_count';
 type SortDir = 'asc' | 'desc';
 
-function SortHeader({ label, field, sortKey, sortDir, onSort }: {
+function SortHeader({ label, field, sortKey, sortDir, onSort, align = 'left' }: {
   label: string;
   field: SortKey;
   sortKey: SortKey;
   sortDir: SortDir;
   onSort: (key: SortKey) => void;
+  align?: 'left' | 'center' | 'right';
 }) {
   const active = sortKey === field;
+  const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
+  const flexAlign = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : '';
   return (
     <th
-      className="text-left p-3 font-medium cursor-pointer hover:text-foreground select-none"
+      className={`${alignClass} p-3 font-medium cursor-pointer hover:text-foreground select-none`}
       onClick={() => onSort(field)}
     >
-      <span className="inline-flex items-center gap-1">
+      <span className={`inline-flex items-center gap-1 ${flexAlign}`}>
         {label}
         <ArrowUpDown className={`w-3 h-3 ${active ? 'text-primary' : 'text-muted-foreground/50'}`} />
         {active && (
@@ -108,10 +111,10 @@ export default function AdherencePage() {
               <thead>
                 <tr className="border-t bg-muted/30">
                   <SortHeader label="Patient" field="patient_name" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <th className="text-left p-3 font-medium">Week</th>
-                  <SortHeader label="Taken" field="taken_count" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortHeader label="Missed" field="missed_count" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
-                  <SortHeader label="Adherence" field="adherence_percentage" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                  <th className="text-center p-3 font-medium">Week</th>
+                  <SortHeader label="Taken" field="taken_count" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="center" />
+                  <SortHeader label="Missed" field="missed_count" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="center" />
+                  <SortHeader label="Adherence" field="adherence_percentage" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} align="center" />
                 </tr>
               </thead>
               <tbody>
@@ -125,13 +128,13 @@ export default function AdherencePage() {
                         {row.patient_name}
                       </Link>
                     </td>
-                    <td className="p-3 text-muted-foreground">
+                    <td className="p-3 text-center text-muted-foreground">
                       {new Date(row.week_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </td>
-                    <td className="p-3 text-right text-emerald-600 dark:text-emerald-400">{row.taken_count}</td>
-                    <td className="p-3 text-right text-rose-600 dark:text-rose-400">{row.missed_count}</td>
+                    <td className="p-3 text-center text-emerald-600 dark:text-emerald-400 font-medium tabular-nums">{row.taken_count}</td>
+                    <td className="p-3 text-center text-rose-600 dark:text-rose-400 font-medium tabular-nums">{row.missed_count}</td>
                     <td className="p-3">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-center gap-2">
                         <div className="w-16 bg-muted rounded-full h-2 overflow-hidden">
                           <div
                             className={`h-2 rounded-full transition-all ${

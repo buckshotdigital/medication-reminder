@@ -9,17 +9,21 @@ import { EmptyState } from '@/components/empty-state';
 import { CallListSkeleton } from '@/components/skeletons';
 import { Input, Select } from '@/components/form-field';
 import { formatDate, formatTime, formatDuration, relativeTime, cn } from '@/lib/utils';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Phone, Search, PhoneOff, RefreshCw } from 'lucide-react';
 
-export default function CallsPage() {
+function CallsContent() {
+  const searchParams = useSearchParams();
+  const initialStatus = searchParams.get('status') || 'all';
+
   const { data: calls, isLoading, error, refetch } = useQuery({
     queryKey: ['calls'],
     queryFn: () => fetchCallLogs(),
   });
 
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
 
@@ -35,6 +39,8 @@ export default function CallsPage() {
       if (statusFilter !== 'all') {
         if (statusFilter === 'taken' && call.medication_taken !== true) return false;
         if (statusFilter === 'missed' && call.medication_taken !== false) return false;
+        if (statusFilter === 'pending' && !(call.medication_taken === null && !['no_answer', 'failed', 'voicemail'].includes(call.status))) return false;
+        if (statusFilter === 'unreached' && !['no_answer', 'failed', 'voicemail'].includes(call.status)) return false;
         if (statusFilter === 'no_answer' && call.status !== 'no_answer') return false;
       }
 
@@ -97,8 +103,9 @@ export default function CallsPage() {
             <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">All Statuses</option>
               <option value="taken">Taken</option>
+              <option value="pending">Pending</option>
               <option value="missed">Missed</option>
-              <option value="no_answer">No Answer</option>
+              <option value="unreached">Unreached</option>
             </Select>
             <Input
               type="date"
@@ -182,5 +189,13 @@ export default function CallsPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function CallsPage() {
+  return (
+    <Suspense>
+      <CallsContent />
+    </Suspense>
   );
 }

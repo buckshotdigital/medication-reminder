@@ -54,7 +54,7 @@ serve(async (req) => {
     });
   }
 
-  console.log(`[twilio-webhook] ${req.method} ${path}`);
+  console.log(`[twilio-webhook] ${req.method} ${path} fullUrl=${req.url}`);
 
   // Parse form data from Twilio
   let formParams: Record<string, string> = {};
@@ -71,10 +71,13 @@ serve(async (req) => {
   }
 
   // Validate Twilio signature using the external URL Twilio signs against
-  const externalUrl = `https://${projectRef}.supabase.co/functions/v1/twilio-webhook${path}`;
+  // Strip function name prefix from path if present (Supabase runtime may include it)
+  const cleanPath = path.replace(/^\/twilio-webhook/, '') || '/';
+  const externalUrl = `https://${projectRef}.supabase.co/functions/v1/twilio-webhook${cleanPath}`;
+  console.log(`[twilio-webhook] Signature check: path=${path}, cleanPath=${cleanPath}, externalUrl=${externalUrl}`);
   const isValid = await validateTwilioSignature(req, externalUrl, formParams);
   if (!isValid) {
-    console.warn('[twilio-webhook] Twilio signature validation failed');
+    console.warn(`[twilio-webhook] Twilio signature validation FAILED for ${externalUrl}`);
     return new Response('Unauthorized', { status: 401 });
   }
 

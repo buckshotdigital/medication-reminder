@@ -10,7 +10,12 @@ const ELEVENLABS_API_KEY = Deno.env.get('ELEVENLABS_API_KEY')!;
 const ELEVENLABS_AGENT_ID = Deno.env.get('ELEVENLABS_AGENT_ID')!;
 
 serve(async (req) => {
-  // Upgrade to WebSocket
+  // Only upgrade WebSocket requests; return 200 for health checks
+  const upgradeHeader = req.headers.get('upgrade') || '';
+  if (upgradeHeader.toLowerCase() !== 'websocket') {
+    return new Response('OK', { status: 200 });
+  }
+
   const { socket: twilioWs, response } = Deno.upgradeWebSocket(req);
 
   let elevenLabsWs: WebSocket | null = null;
@@ -26,6 +31,8 @@ serve(async (req) => {
   let debugMessages: string[] = [];
   let elevenLabsReady = false;
   let audioChunkCount = 0;
+  let audioReceivedCount = 0;
+  let callStartTime: number | null = null;
 
   // Debug helper: logs to console and stores for DB write
   function debug(msg: string) {
@@ -106,6 +113,9 @@ serve(async (req) => {
             debug(`Fetched from DB: ${patientInfo?.name || 'NOT FOUND'}, ${allMedications.map(m => m.name).join(', ') || 'NONE'}`);
           }
 
+          // Mark call start time for duration tracking
+          callStartTime = Date.now();
+
           // Connect to ElevenLabs immediately — no more DB queries in the way
           await connectToElevenLabs();
           await flushDebugLog();
@@ -131,6 +141,7 @@ serve(async (req) => {
         case 'stop':
           debug('Stream stopped');
           await saveTranscript();
+          await updateCallDuration();
           await flushDebugLog();
           if (elevenLabsWs) {
             elevenLabsWs.close();
@@ -146,9 +157,11 @@ serve(async (req) => {
     }
   };
 
-  twilioWs.onclose = () => {
+  twilioWs.onclose = async () => {
     debug('Twilio WebSocket closed');
-    flushDebugLog();
+    // Fallback: save transcript if 'stop' event was missed
+    await saveTranscript();
+    await flushDebugLog();
     if (elevenLabsWs) {
       elevenLabsWs.close();
     }
@@ -189,7 +202,7 @@ serve(async (req) => {
     // Note: WebSocket standard API does not support custom headers, so API key must be
     // passed as a query parameter. This is the ElevenLabs-recommended approach for server-side.
     // The URL is never logged to prevent key exposure.
-    const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}&xi-api-key=${ELEVENLABS_API_KEY}`;
+    const wsUrl = `wss://api.elevenlabs.io/v1/convai/conversation?agent_id=${ELEVENLABS_AGENT_ID}&output_format=ulaw_8000&xi-api-key=${ELEVENLABS_API_KEY}`;
     debug('Connecting ElevenLabs WS...');
 
     try {
@@ -212,9 +225,18 @@ serve(async (req) => {
       try {
         const msg = JSON.parse(event.data);
 
+        // Log every event type for debugging (skip audio to avoid spam)
+        if (msg.type !== 'audio' && msg.type !== 'ping') {
+          debug(`EL event: ${msg.type}`);
+        }
+
         switch (msg.type) {
           case 'audio':
             // Forward audio from ElevenLabs to Twilio
+            audioReceivedCount++;
+            if (audioReceivedCount === 1) {
+              debug(`First audio received from ElevenLabs. Keys: ${Object.keys(msg).join(', ')}. Audio keys: ${msg.audio ? Object.keys(msg.audio).join(', ') : 'N/A'}. Audio_event keys: ${msg.audio_event ? Object.keys(msg.audio_event).join(', ') : 'N/A'}`);
+            }
             if (twilioWs.readyState === WebSocket.OPEN && streamSid) {
               const audioPayload = msg.audio?.chunk || msg.audio_event?.audio_base_64;
               if (audioPayload) {
@@ -226,7 +248,7 @@ serve(async (req) => {
                   },
                 }));
               } else {
-                debug(`Audio event received but no payload found. Keys: ${Object.keys(msg).join(', ')}. Audio keys: ${msg.audio ? Object.keys(msg.audio).join(', ') : 'N/A'}. Audio_event keys: ${msg.audio_event ? Object.keys(msg.audio_event).join(', ') : 'N/A'}`);
+                debug(`Audio event #${audioReceivedCount} no payload. Keys: ${Object.keys(msg).join(', ')}. Audio keys: ${msg.audio ? Object.keys(msg.audio).join(', ') : 'N/A'}. Audio_event keys: ${msg.audio_event ? Object.keys(msg.audio_event).join(', ') : 'N/A'}`);
               }
             }
             break;
@@ -286,12 +308,13 @@ serve(async (req) => {
 
     elevenLabsWs.onclose = async (event) => {
       elevenLabsReady = false;
-      debug(`ElevenLabs WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'none'}. Audio chunks sent: ${audioChunkCount}`);
+      debug(`ElevenLabs WebSocket closed. Code: ${event.code}, Reason: ${event.reason || 'none'}. Audio sent: ${audioChunkCount}, received: ${audioReceivedCount}`);
       await flushDebugLog();
     };
 
-    elevenLabsWs.onerror = async (error) => {
-      debug(`ElevenLabs WebSocket error: ${error}`);
+    elevenLabsWs.onerror = async (error: Event) => {
+      const errDetail = (error as any).message || (error as any).error || error.type || 'unknown';
+      debug(`ElevenLabs WebSocket error: ${errDetail}`);
       await flushDebugLog();
     };
   }
@@ -309,24 +332,30 @@ serve(async (req) => {
       switch (tool_name) {
         case 'confirm_medication_taken':
           if (callSid) {
-            await supabase
+            const { error: updateErr } = await supabase
               .from('reminder_call_logs')
               .update({
                 medication_taken: true,
               })
               .eq('call_sid', callSid);
+            if (updateErr) debug(`ERROR updating medication_taken=true: ${updateErr.message}`);
+          } else {
+            debug('WARN: callSid is null, cannot update medication_taken=true');
           }
           result = { confirmed: true, message: 'Medication logged as taken' };
           break;
 
         case 'medication_not_taken':
           if (callSid) {
-            await supabase
+            const { error: updateErr } = await supabase
               .from('reminder_call_logs')
               .update({
                 medication_taken: false,
               })
               .eq('call_sid', callSid);
+            if (updateErr) debug(`ERROR updating medication_taken=false: ${updateErr.message}`);
+          } else {
+            debug('WARN: callSid is null, cannot update medication_taken=false');
           }
 
           if (parameters?.schedule_callback && patientId && medicationId) {
@@ -464,6 +493,32 @@ serve(async (req) => {
       .eq('call_sid', callSid);
 
     debug('Transcript saved');
+  }
+
+  async function updateCallDuration() {
+    if (!callSid || !callStartTime) {
+      debug('Skip duration update: missing callSid or startTime');
+      return;
+    }
+
+    try {
+      const durationSeconds = Math.ceil((Date.now() - callStartTime) / 1000);
+      debug(`Call duration: ${durationSeconds}s`);
+
+      // Update call log with duration (credit deduction handled by twilio-webhook/status callback)
+      const { error: updateErr } = await supabase
+        .from('reminder_call_logs')
+        .update({
+          duration_seconds: durationSeconds,
+        })
+        .eq('call_sid', callSid);
+
+      if (updateErr) {
+        debug(`ERROR updating duration: ${updateErr.message}`);
+      }
+    } catch (error) {
+      debug(`Duration update error: ${error.message}`);
+    }
   }
 
   return response;

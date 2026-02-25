@@ -110,7 +110,7 @@ serve(async (req) => {
       .eq('status', 'pending')
       .lte('scheduled_for', now.toISOString())
       .order('scheduled_for', { ascending: true })
-      .limit(10);
+      .limit(20);
 
     if (fetchError) {
       throw fetchError;
@@ -126,27 +126,33 @@ serve(async (req) => {
 
     console.log(`[schedule-reminder] Found ${pendingCalls.length} pending calls`);
 
-    const results = [];
-
+    // Claim all pending rows atomically first (sequential to avoid race conditions)
+    const claimedCalls = [];
     for (const call of pendingCalls) {
+      const { data: claimedRows, error: claimError } = await supabase
+        .from('scheduled_reminder_calls')
+        .update({ status: 'in_progress' })
+        .eq('id', call.id)
+        .eq('status', 'pending')
+        .select('id');
+
+      if (claimError) {
+        console.error(`[schedule-reminder] Claim error for ${call.id}:`, claimError);
+        continue;
+      }
+      if (!claimedRows || claimedRows.length === 0) {
+        console.log(`[schedule-reminder] Call ${call.id} already claimed, skipping`);
+        continue;
+      }
+      claimedCalls.push(call);
+    }
+
+    console.log(`[schedule-reminder] Claimed ${claimedCalls.length} of ${pendingCalls.length} calls`);
+
+    // Dispatch all claimed calls in parallel
+    const results = await Promise.all(claimedCalls.map(async (call) => {
       try {
-        console.log(`[schedule-reminder] Processing call for ${call.patients?.name}`);
-
-        // Atomically claim this pending row to avoid double-processing in concurrent workers
-        const { data: claimedRows, error: claimError } = await supabase
-          .from('scheduled_reminder_calls')
-          .update({ status: 'in_progress' })
-          .eq('id', call.id)
-          .eq('status', 'pending')
-          .select('id');
-
-        if (claimError) {
-          throw claimError;
-        }
-        if (!claimedRows || claimedRows.length === 0) {
-          console.log(`[schedule-reminder] Call ${call.id} already claimed by another worker, skipping`);
-          continue;
-        }
+        console.log(`[schedule-reminder] Dispatching call for ${call.patients?.name}`);
 
         // Look up patient's max call duration, cap by available credits
         let maxDuration = 300; // Default: 5 minutes
@@ -156,22 +162,23 @@ serve(async (req) => {
           });
           if (planData && planData.length > 0) {
             const plan = planData[0];
-            maxDuration = plan.max_call_duration_seconds;
-            // Cap by available credits (1 credit minute = 60 seconds)
-            if (plan.balance_minutes > 0) {
-              const creditSeconds = Math.floor(plan.balance_minutes * 60);
+            const configMax = plan.max_call_duration_seconds;
+            const balanceMin = plan.balance_minutes;
+            maxDuration = configMax;
+            if (balanceMin > 0) {
+              const creditSeconds = Math.floor(balanceMin * 60);
               maxDuration = Math.min(maxDuration, creditSeconds);
             } else {
-              // No credits: use short fallback
               maxDuration = Math.min(maxDuration, 60);
             }
+            console.log(`[schedule-reminder] Patient ${call.patients.name}: configMax=${configMax}s, balance=${balanceMin}min, creditCap=${Math.floor(balanceMin * 60)}s, final maxDuration=${maxDuration}s`);
+          } else {
+            console.log(`[schedule-reminder] Patient ${call.patients.name}: no plan data, using default ${maxDuration}s`);
           }
-          console.log(`[schedule-reminder] Patient ${call.patients.name}: maxDuration=${maxDuration}s`);
         } catch (planErr) {
           console.warn('[schedule-reminder] Plan lookup failed, using default 300s:', planErr);
         }
 
-        // Build medication_ids list for multi-med bundling
         const medicationIds = call.medication_ids?.length > 0
           ? call.medication_ids
           : [call.medications.id];
@@ -189,47 +196,53 @@ serve(async (req) => {
           maxDuration
         );
 
-        // Create call log
-        await supabase.from('reminder_call_logs').insert({
-          patient_id: call.patients.id,
-          medication_id: call.medications.id,
-          call_sid: callResult.sid,
-          status: 'initiated',
-          attempt_number: call.attempt_number,
-        });
+        // Create call log + mark scheduled call as completed (parallel)
+        const [insertResult, updateResult] = await Promise.all([
+          supabase.from('reminder_call_logs').insert({
+            patient_id: call.patients.id,
+            medication_id: call.medications.id,
+            call_sid: callResult.sid,
+            status: 'initiated',
+            attempt_number: call.attempt_number,
+          }),
+          supabase
+            .from('scheduled_reminder_calls')
+            .update({ status: 'completed' })
+            .eq('id', call.id),
+        ]);
 
-        // Mark scheduled call as completed
-        await supabase
-          .from('scheduled_reminder_calls')
-          .update({ status: 'completed' })
-          .eq('id', call.id);
+        if (insertResult.error) {
+          console.error(`[schedule-reminder] FAILED to insert call log for ${call.patients.name}:`, insertResult.error);
+        }
+        if (updateResult.error) {
+          console.error(`[schedule-reminder] FAILED to update scheduled call:`, updateResult.error);
+        }
 
-        results.push({
+        console.log(`[schedule-reminder] Call initiated: ${callResult.sid}`);
+
+        return {
           scheduled_call_id: call.id,
           patient: call.patients.name,
           status: 'success',
           call_sid: callResult.sid,
-        });
-
-        console.log(`[schedule-reminder] Call initiated: ${callResult.sid}`);
+        };
 
       } catch (error) {
         console.error(`[schedule-reminder] Failed to initiate call:`, error);
 
-        // Mark as failed
         await supabase
           .from('scheduled_reminder_calls')
           .update({ status: 'failed' })
           .eq('id', call.id);
 
-        results.push({
+        return {
           scheduled_call_id: call.id,
           patient: call.patients?.name,
           status: 'failed',
           error: error.message,
-        });
+        };
       }
-    }
+    }));
 
     return new Response(
       JSON.stringify({
@@ -281,8 +294,10 @@ async function initiateCall(
   }
 
   // Build inline TwiML — skips the webhook round trip entirely
+  // Pause gives callee ~1 second to settle after picking up before AI speaks
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
+  <Pause length="1"/>
   <Connect>
     <Stream url="${wsUrl}">
       <Parameter name="patient_id" value="${patientId}" />

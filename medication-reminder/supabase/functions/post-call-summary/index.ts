@@ -60,7 +60,17 @@ serve(async (req) => {
       );
     }
 
-    // Call Claude Haiku for structured summary
+    // Determine if we need to infer medication_taken status
+    const needsMedTakenInference = callLog.medication_taken === null;
+
+    // Call Claude Haiku for structured summary (+ medication_taken inference if needed)
+    const inferencePrompt = needsMedTakenInference
+      ? `\n  "medication_taken": true|false  // Did the patient confirm they ALREADY took their medication? true = they said they took it, false = they said not yet / refused / unclear`
+      : '';
+    const inferenceInstruction = needsMedTakenInference
+      ? `\nIMPORTANT: Also determine if the patient confirmed they already took their medication. Set medication_taken to true ONLY if the patient clearly stated they have already taken it (e.g. "I did", "yes I have", "I took it"). Set to false if they said "not yet", "I will", refused, or if it's unclear.`
+      : '';
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -83,9 +93,9 @@ Respond in JSON format only:
 {
   "summary": "1-2 sentence summary of the call outcome",
   "sentiment": "positive|neutral|negative|concerned",
-  "key_facts": ["array of notable facts mentioned by patient, e.g. side effects, feelings, timing"]
+  "key_facts": ["array of notable facts mentioned by patient, e.g. side effects, feelings, timing"]${inferencePrompt}
 }
-
+${inferenceInstruction}
 Only include key_facts that would be useful context for future calls. If nothing notable, use an empty array.`,
           },
         ],
@@ -122,6 +132,24 @@ Only include key_facts that would be useful context for future calls. If nothing
     }
 
     console.log('[post-call-summary] Summary:', summary);
+
+    // Fallback: update medication_taken if tool wasn't called during the call
+    if (needsMedTakenInference && summary.medication_taken !== undefined) {
+      const inferredTaken = summary.medication_taken === true;
+      const { error: medUpdateErr } = await supabase
+        .from('reminder_call_logs')
+        .update({
+          medication_taken: inferredTaken,
+          notes: (callLog.notes || '') + `\n[post-call-summary] Inferred medication_taken=${inferredTaken} from transcript`,
+        })
+        .eq('id', call_log_id);
+
+      if (medUpdateErr) {
+        console.error('[post-call-summary] Failed to update medication_taken:', medUpdateErr);
+      } else {
+        console.log(`[post-call-summary] Updated medication_taken=${inferredTaken} (inferred from transcript)`);
+      }
+    }
 
     // Insert conversation summary
     const { data: inserted, error: insertError } = await supabase
