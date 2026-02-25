@@ -135,69 +135,88 @@ export default function DashboardPage() {
       </div>
 
       {/* Adherence Summary */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="font-semibold">Adherence Summary</h2>
-          <Link href="/dashboard/adherence" className="text-sm text-primary hover:underline">
-            View details
-          </Link>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* This Week */}
-          <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-6">
-            <p className="text-sm font-medium text-muted-foreground mb-3">This Week</p>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-3xl font-bold text-primary">
-                {stats.weekly?.taken ?? 0}/{stats.weekly?.total ?? 0}
-              </span>
-              <span className="text-sm text-muted-foreground">taken</span>
-              <span className={cn(
-                'ml-auto text-lg font-semibold',
-                (stats.weekly?.adherence ?? 0) >= 80
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : (stats.weekly?.adherence ?? 0) >= 50
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-rose-600 dark:text-rose-400'
-              )}>
-                {stats.weekly?.adherence ?? 0}%
-              </span>
-            </div>
-            <div className="bg-muted rounded-full h-2.5 overflow-hidden">
-              <div
-                className="bg-emerald-500 rounded-full h-2.5 transition-all duration-500"
-                style={{ width: `${stats.weekly?.adherence ?? 0}%` }}
-              />
-            </div>
-          </div>
+      {(() => {
+        const now = new Date();
+        const weekFrom = new Date(now);
+        weekFrom.setDate(weekFrom.getDate() - 7);
+        const monthFrom = new Date(now);
+        monthFrom.setDate(monthFrom.getDate() - 30);
+        const todayStr = now.toISOString().split('T')[0];
+        const weekFromStr = weekFrom.toISOString().split('T')[0];
+        const monthFromStr = monthFrom.toISOString().split('T')[0];
 
-          {/* This Month */}
-          <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-6">
-            <p className="text-sm font-medium text-muted-foreground mb-3">This Month</p>
-            <div className="flex items-baseline gap-2 mb-3">
-              <span className="text-3xl font-bold text-primary">
-                {stats.monthly?.taken ?? 0}/{stats.monthly?.total ?? 0}
-              </span>
-              <span className="text-sm text-muted-foreground">taken</span>
-              <span className={cn(
-                'ml-auto text-lg font-semibold',
-                (stats.monthly?.adherence ?? 0) >= 80
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : (stats.monthly?.adherence ?? 0) >= 50
-                    ? 'text-amber-600 dark:text-amber-400'
-                    : 'text-rose-600 dark:text-rose-400'
-              )}>
-                {stats.monthly?.adherence ?? 0}%
-              </span>
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold">Adherence Summary</h2>
+              <Link href="/dashboard/adherence" className="text-sm text-primary hover:underline">
+                View details
+              </Link>
             </div>
-            <div className="bg-muted rounded-full h-2.5 overflow-hidden">
-              <div
-                className="bg-emerald-500 rounded-full h-2.5 transition-all duration-500"
-                style={{ width: `${stats.monthly?.adherence ?? 0}%` }}
-              />
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* This Week */}
+              <Link
+                href={`/dashboard/calls?from=${weekFromStr}&to=${todayStr}`}
+                className="rounded-2xl shadow-soft bg-white dark:bg-card p-6 hover:shadow-soft-lg transition-all block"
+              >
+                <p className="text-sm font-medium text-muted-foreground mb-3">This Week</p>
+                <div className="flex items-baseline gap-2 mb-3">
+                  <span className="text-3xl font-bold text-primary">
+                    {stats.weekly?.taken ?? 0}/{stats.weekly?.total ?? 0}
+                  </span>
+                  <span className="text-sm text-muted-foreground">taken</span>
+                  <span className={cn(
+                    'ml-auto text-lg font-semibold',
+                    (stats.weekly?.adherence ?? 0) >= 80
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : (stats.weekly?.adherence ?? 0) >= 50
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                  )}>
+                    {stats.weekly?.adherence ?? 0}%
+                  </span>
+                </div>
+                <div className="bg-muted rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-emerald-500 rounded-full h-2.5 transition-all duration-500"
+                    style={{ width: `${stats.weekly?.adherence ?? 0}%` }}
+                  />
+                </div>
+              </Link>
+
+              {/* This Month */}
+              <Link
+                href={`/dashboard/calls?from=${monthFromStr}&to=${todayStr}`}
+                className="rounded-2xl shadow-soft bg-white dark:bg-card p-6 hover:shadow-soft-lg transition-all block"
+              >
+                <p className="text-sm font-medium text-muted-foreground mb-3">This Month</p>
+                <div className="flex items-baseline gap-2 mb-3">
+                  <span className="text-3xl font-bold text-primary">
+                    {stats.monthly?.taken ?? 0}/{stats.monthly?.total ?? 0}
+                  </span>
+                  <span className="text-sm text-muted-foreground">taken</span>
+                  <span className={cn(
+                    'ml-auto text-lg font-semibold',
+                    (stats.monthly?.adherence ?? 0) >= 80
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : (stats.monthly?.adherence ?? 0) >= 50
+                        ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                  )}>
+                    {stats.monthly?.adherence ?? 0}%
+                  </span>
+                </div>
+                <div className="bg-muted rounded-full h-2.5 overflow-hidden">
+                  <div
+                    className="bg-emerald-500 rounded-full h-2.5 transition-all duration-500"
+                    style={{ width: `${stats.monthly?.adherence ?? 0}%` }}
+                  />
+                </div>
+              </Link>
             </div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Credit balance card */}
       {credits && (

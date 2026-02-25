@@ -59,6 +59,8 @@ function groupCalls(calls: any[]): CallGroup[] {
 function CallsContent() {
   const searchParams = useSearchParams();
   const initialStatus = searchParams.get('status') || 'all';
+  const initialFrom = searchParams.get('from') || '';
+  const initialTo = searchParams.get('to') || '';
 
   const { data: calls, isLoading, error, refetch } = useQuery({
     queryKey: ['calls'],
@@ -72,8 +74,8 @@ function CallsContent() {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(initialStatus);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [dateFrom, setDateFrom] = useState(initialFrom);
+  const [dateTo, setDateTo] = useState(initialTo);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
