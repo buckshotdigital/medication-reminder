@@ -79,10 +79,45 @@ export async function ensureCaregiverExists() {
   }
 }
 
+/**
+ * Mark calls older than 1 hour with no result as failed.
+ * These are stale calls where the Twilio status callback never arrived.
+ * Once marked as failed, they appear on the Tasks page for caregiver follow-up.
+ */
+async function cleanupStaleCalls() {
+  const supabase = getSupabase();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+
+  const { data: staleCalls, error: fetchErr } = await supabase
+    .from('reminder_call_logs')
+    .select('id')
+    .in('status', ['initiated', 'answered'])
+    .is('medication_taken', null)
+    .lt('created_at', oneHourAgo)
+    .limit(50);
+
+  if (fetchErr || !staleCalls || staleCalls.length === 0) return;
+
+  console.log(`[cleanup] Marking ${staleCalls.length} stale calls as failed`);
+
+  const { error: updateErr } = await supabase
+    .from('reminder_call_logs')
+    .update({
+      status: 'failed',
+      notes: 'Call result unknown — status callback not received. Please follow up with patient.',
+    })
+    .in('id', staleCalls.map(c => c.id));
+
+  if (updateErr) {
+    console.warn('[cleanup] Failed to update stale calls:', updateErr);
+  }
+}
+
 export async function fetchDashboardStats() {
   const supabase = getSupabase();
 
-  // Query tables directly via Supabase client (uses cookie-based auth)
+  // Auto-cleanup stale calls (fire and forget — don't block dashboard load)
+  cleanupStaleCalls().catch(() => {});
 
   // Use browser's local timezone for day boundaries so late-night calls
   // (e.g. 10 PM EST = 3 AM UTC next day) still count as "today"
