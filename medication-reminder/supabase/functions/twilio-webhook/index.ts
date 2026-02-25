@@ -238,8 +238,9 @@ serve(async (req) => {
 
     console.log(`[twilio-webhook] /amd - CallSid: ${amdCallSid}, AnsweredBy: ${answeredBy}`);
 
-    if (answeredBy === 'machine_start' || answeredBy === 'machine_end_beep' || answeredBy === 'machine_end_silence') {
-      // Voicemail detected — look up call info and leave a message
+    if (answeredBy === 'machine_end_beep') {
+      // Voicemail confirmed (beep heard) — leave a message
+      // Only act on machine_end_beep; machine_start is unreliable and often misclassifies humans
       if (amdCallSid) {
         try {
           const { data: callLog } = await supabase
@@ -412,7 +413,7 @@ serve(async (req) => {
 
       // Legacy voicemail detection via status callback (now handled by /amd route with async AMD)
       // Keep as fallback in case AMD callback doesn't fire
-      if (answeredBy === 'machine_start' || answeredBy === 'machine_end_beep') {
+      if (answeredBy === 'machine_end_beep') {
         const { data: existingLog } = await supabase
           .from('reminder_call_logs')
           .select('status')
