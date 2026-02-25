@@ -61,6 +61,7 @@ function CallsContent() {
   const initialStatus = searchParams.get('status') || 'all';
   const initialFrom = searchParams.get('from') || '';
   const initialTo = searchParams.get('to') || '';
+  const initialSearch = searchParams.get('search') || '';
 
   const { data: calls, isLoading, error, refetch } = useQuery({
     queryKey: ['calls'],
@@ -72,7 +73,7 @@ function CallsContent() {
     queryFn: () => fetchScheduledCalls(),
   });
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [dateFrom, setDateFrom] = useState(initialFrom);
   const [dateTo, setDateTo] = useState(initialTo);

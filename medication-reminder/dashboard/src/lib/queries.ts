@@ -145,16 +145,16 @@ export async function fetchDashboardStats() {
       .eq('status', 'pending')
       .gte('scheduled_for', todayStart.toISOString())
       .lte('scheduled_for', todayEnd.toISOString()),
-    // This week's calls for adherence
+    // This week's calls for adherence (need patient_id, medication_id, created_at for grouping)
     supabase
       .from('reminder_call_logs')
-      .select('medication_taken')
+      .select('medication_taken, patient_id, medication_id, created_at')
       .gte('created_at', weekStart.toISOString())
       .not('medication_taken', 'is', null),
     // This month's calls for adherence
     supabase
       .from('reminder_call_logs')
-      .select('medication_taken')
+      .select('medication_taken, patient_id, medication_id, created_at')
       .gte('created_at', monthStart.toISOString())
       .not('medication_taken', 'is', null),
     // All patients with medication count
@@ -206,15 +206,24 @@ export async function fetchDashboardStats() {
     unreachedStatuses.includes(c.status)
   ).length;
 
-  // Weekly summary
-  const weekTotal = weekCalls.length;
-  const weekTaken = weekCalls.filter(c => c.medication_taken === true).length;
-  const weeklyAdherence = weekTotal > 0 ? Math.round((weekTaken / weekTotal) * 100) : 0;
+  // Group calls by patient+medication+day so retries count as one event
+  // "taken" wins if any attempt in the group was successful
+  function adherenceStats(calls: any[]) {
+    const groups = new Map<string, boolean>();
+    for (const c of calls) {
+      const day = new Date(c.created_at).toISOString().split('T')[0];
+      const key = `${c.patient_id}-${c.medication_id}-${day}`;
+      const prev = groups.get(key);
+      groups.set(key, prev === true ? true : c.medication_taken === true);
+    }
+    const total = groups.size;
+    const taken = Array.from(groups.values()).filter(v => v).length;
+    const adherence = total > 0 ? Math.round((taken / total) * 100) : 0;
+    return { taken, total, adherence };
+  }
 
-  // Monthly summary
-  const monthTotal = monthCalls.length;
-  const monthTaken = monthCalls.filter(c => c.medication_taken === true).length;
-  const monthlyAdherence = monthTotal > 0 ? Math.round((monthTaken / monthTotal) * 100) : 0;
+  const weekStats = adherenceStats(weekCalls);
+  const monthStats = adherenceStats(monthCalls);
 
   const escalations = escalationsResult.error ? [] : (escalationsResult.data || []);
   const credits = {
@@ -224,9 +233,9 @@ export async function fetchDashboardStats() {
   return {
     today: { taken, scheduled, pending, unreached },
     patients,
-    weekly: { taken: weekTaken, total: weekTotal, adherence: weeklyAdherence },
-    monthly: { taken: monthTaken, total: monthTotal, adherence: monthlyAdherence },
-    weekly_adherence: weeklyAdherence,
+    weekly: weekStats,
+    monthly: monthStats,
+    weekly_adherence: weekStats.adherence,
     recent_calls: recentResult.data || [],
     escalations,
     credits,

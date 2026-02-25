@@ -854,6 +854,82 @@ export default function PatientDetailPage() {
         </div>
       </div>
 
+      {/* Adherence Summary */}
+      {calls && calls.length > 0 && (() => {
+        const now = new Date();
+        const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7);
+        const monthAgo = new Date(now); monthAgo.setDate(monthAgo.getDate() - 30);
+
+        // Group calls by medication+day so retries count as one event
+        // "taken" wins if any attempt in the group was successful
+        function adherenceStats(filteredCalls: any[]) {
+          const groups = new Map<string, boolean>();
+          for (const c of filteredCalls) {
+            if (c.medication_taken === null) continue;
+            const day = new Date(c.created_at).toISOString().split('T')[0];
+            const key = `${c.medication_id || c.medications?.id}-${day}`;
+            const prev = groups.get(key);
+            // taken wins over not-taken
+            groups.set(key, prev === true ? true : c.medication_taken === true);
+          }
+          const total = groups.size;
+          const taken = Array.from(groups.values()).filter(v => v).length;
+          const pct = total > 0 ? Math.round((taken / total) * 100) : 0;
+          return { taken, total, pct };
+        }
+
+        const weekCalls = calls.filter((c: any) => new Date(c.created_at) >= weekAgo);
+        const monthCalls = calls.filter((c: any) => new Date(c.created_at) >= monthAgo);
+        const w = adherenceStats(weekCalls);
+        const m = adherenceStats(monthCalls);
+
+        return (
+          <div>
+            <h2 className="font-semibold mb-4">Adherence Summary</h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Link
+                href={`/dashboard/calls?from=${weekAgo.toISOString().split('T')[0]}&to=${now.toISOString().split('T')[0]}&search=${encodeURIComponent(patient.name)}`}
+                className="rounded-2xl shadow-soft bg-white dark:bg-card p-5 hover:shadow-soft-lg transition-all block"
+              >
+                <p className="text-sm font-medium text-muted-foreground mb-2">This Week</p>
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="text-2xl font-bold text-primary">{w.taken}/{w.total}</span>
+                  <span className="text-sm text-muted-foreground">taken</span>
+                  <span className={cn(
+                    'ml-auto text-lg font-semibold',
+                    w.pct >= 80 ? 'text-emerald-600 dark:text-emerald-400'
+                      : w.pct >= 50 ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                  )}>{w.pct}%</span>
+                </div>
+                <div className="bg-muted rounded-full h-2 overflow-hidden">
+                  <div className="bg-emerald-500 rounded-full h-2 transition-all duration-500" style={{ width: `${w.pct}%` }} />
+                </div>
+              </Link>
+              <Link
+                href={`/dashboard/calls?from=${monthAgo.toISOString().split('T')[0]}&to=${now.toISOString().split('T')[0]}&search=${encodeURIComponent(patient.name)}`}
+                className="rounded-2xl shadow-soft bg-white dark:bg-card p-5 hover:shadow-soft-lg transition-all block"
+              >
+                <p className="text-sm font-medium text-muted-foreground mb-2">This Month</p>
+                <div className="flex items-baseline gap-2 mb-2">
+                  <span className="text-2xl font-bold text-primary">{m.taken}/{m.total}</span>
+                  <span className="text-sm text-muted-foreground">taken</span>
+                  <span className={cn(
+                    'ml-auto text-lg font-semibold',
+                    m.pct >= 80 ? 'text-emerald-600 dark:text-emerald-400'
+                      : m.pct >= 50 ? 'text-amber-600 dark:text-amber-400'
+                        : 'text-rose-600 dark:text-rose-400'
+                  )}>{m.pct}%</span>
+                </div>
+                <div className="bg-muted rounded-full h-2 overflow-hidden">
+                  <div className="bg-emerald-500 rounded-full h-2 transition-all duration-500" style={{ width: `${m.pct}%` }} />
+                </div>
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Recent calls */}
       <div>
         <h2 className="font-semibold mb-4">Recent Calls</h2>
