@@ -420,26 +420,36 @@ serve(async (req) => {
             debug('WARN: callSid is null, cannot update medication_taken=false');
           }
 
-          // Always schedule a callback when medication is not taken
-          // (agent may or may not send schedule_callback param — don't rely on it)
+          // Schedule a callback if auto_retry is enabled for this medication
           if (patientId && medicationId) {
-            const callbackMinutes = parameters?.callback_minutes || 30;
-            const callbackTime = new Date(Date.now() + callbackMinutes * 60 * 1000);
+            const { data: medRetry } = await supabase
+              .from('medications')
+              .select('auto_retry')
+              .eq('id', medicationId)
+              .single();
 
-            const { error: insertErr } = await supabase.from('scheduled_reminder_calls').insert({
-              patient_id: patientId,
-              medication_id: medicationId,
-              scheduled_for: callbackTime.toISOString(),
-              attempt_number: 1,
-            });
+            if (medRetry?.auto_retry !== false) {
+              const callbackMinutes = parameters?.callback_minutes || 30;
+              const callbackTime = new Date(Date.now() + callbackMinutes * 60 * 1000);
 
-            if (insertErr) {
-              debug(`ERROR scheduling callback: ${insertErr.message}`);
+              const { error: insertErr } = await supabase.from('scheduled_reminder_calls').insert({
+                patient_id: patientId,
+                medication_id: medicationId,
+                scheduled_for: callbackTime.toISOString(),
+                attempt_number: 1,
+              });
+
+              if (insertErr) {
+                debug(`ERROR scheduling callback: ${insertErr.message}`);
+              } else {
+                debug(`Callback scheduled for ${callbackTime.toISOString()}`);
+              }
+
+              result = { scheduled_callback: true, callback_time: callbackTime.toISOString() };
             } else {
-              debug(`Callback scheduled for ${callbackTime.toISOString()}`);
+              debug('auto_retry disabled for this medication, skipping callback');
+              result = { acknowledged: true, auto_retry_disabled: true };
             }
-
-            result = { scheduled_callback: true, callback_time: callbackTime.toISOString() };
           } else {
             result = { acknowledged: true };
           }

@@ -465,6 +465,18 @@ async function scheduleRetry(callSid: string) {
     return;
   }
 
+  // Check if auto_retry is enabled for this medication
+  const { data: med } = await supabase
+    .from('medications')
+    .select('auto_retry')
+    .eq('id', callLog.medication_id)
+    .single();
+
+  if (med && med.auto_retry === false) {
+    console.log('[twilio-webhook] auto_retry disabled for this medication, skipping retry');
+    return;
+  }
+
   const attemptNumber = callLog.attempt_number || 1;
 
   // Max 3 call attempts

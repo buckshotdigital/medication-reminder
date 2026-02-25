@@ -102,6 +102,7 @@ export default function PatientDetailPage() {
     refill_remaining_doses: '',
     refill_alert_threshold: '3',
     last_refill_date: '',
+    auto_retry: true,
   });
   const [savingMed, setSavingMed] = useState(false);
   const [togglingMedId, setTogglingMedId] = useState<string | null>(null);
@@ -203,6 +204,7 @@ export default function PatientDetailPage() {
       refill_remaining_doses: med.refill_remaining_doses != null ? String(med.refill_remaining_doses) : '',
       refill_alert_threshold: med.refill_alert_threshold != null ? String(med.refill_alert_threshold) : '3',
       last_refill_date: med.last_refill_date || '',
+      auto_retry: med.auto_retry !== false,
     });
   }, []);
 
@@ -241,6 +243,7 @@ export default function PatientDetailPage() {
           ? null
           : Number(editMed.refill_alert_threshold),
         last_refill_date: editMed.last_refill_date || null,
+        auto_retry: editMed.auto_retry,
       });
       await refetchPatient();
       setEditingMedId(null);
@@ -670,6 +673,18 @@ export default function PatientDetailPage() {
                         </button>
                       ))}
                     </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={editMed.auto_retry}
+                        onChange={e => setEditMed(prev => ({ ...prev, auto_retry: e.target.checked }))}
+                        className="rounded border-gray-300"
+                      />
+                      <span className="text-sm font-medium">Follow-up calls</span>
+                      <span className="text-xs text-muted-foreground">Auto-retry on voicemail &amp; callback if not taken</span>
+                    </label>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" loading={savingMed} onClick={saveMedEdit}>
