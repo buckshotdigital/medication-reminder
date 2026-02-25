@@ -310,7 +310,7 @@ serve(async (req) => {
     const duration = formParams['CallDuration'];
     const answeredBy = formParams['AnsweredBy'];
 
-    console.log('[twilio-webhook] /status - Status:', callStatus, 'Duration:', duration, 'AnsweredBy:', answeredBy);
+    console.log(`[twilio-webhook] /status - CallSid: ${callSid}, Status: ${callStatus}, Duration: ${duration}, AnsweredBy: ${answeredBy}, AllParams: ${JSON.stringify(formParams)}`);
 
     if (callSid) {
       // Update call log
@@ -328,7 +328,11 @@ serve(async (req) => {
         .eq('call_sid', callSid);
 
       // On call completion, trigger post-call processing + credit deduction
-      if (callStatus === 'completed') {
+      // Deduct credits for any call that had a duration (not just 'completed' —
+      // Twilio may report 'completed' or other terminal statuses for connected calls)
+      const callDurationSec = duration ? parseInt(duration) : 0;
+      const isTerminal = ['completed', 'no-answer', 'busy', 'failed', 'canceled'].includes(callStatus);
+      if (isTerminal && callDurationSec > 0) {
         // Find the call log for post-processing
         const { data: callLog } = await supabase
           .from('reminder_call_logs')
@@ -339,9 +343,9 @@ serve(async (req) => {
         if (callLog) {
           const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 
-          // Credit deduction for all calls
+          // Credit deduction for all calls with duration
           try {
-            const callDuration = callLog.duration_seconds || (duration ? parseInt(duration) : 0);
+            const callDuration = callDurationSec || callLog.duration_seconds || 0;
             const { data: planData } = await supabase.rpc('get_patient_plan', {
               p_patient_id: callLog.patient_id,
             });

@@ -420,16 +420,24 @@ serve(async (req) => {
             debug('WARN: callSid is null, cannot update medication_taken=false');
           }
 
-          if (parameters?.schedule_callback && patientId && medicationId) {
+          // Always schedule a callback when medication is not taken
+          // (agent may or may not send schedule_callback param — don't rely on it)
+          if (patientId && medicationId) {
             const callbackMinutes = parameters?.callback_minutes || 30;
             const callbackTime = new Date(Date.now() + callbackMinutes * 60 * 1000);
 
-            await supabase.from('scheduled_reminder_calls').insert({
+            const { error: insertErr } = await supabase.from('scheduled_reminder_calls').insert({
               patient_id: patientId,
               medication_id: medicationId,
               scheduled_for: callbackTime.toISOString(),
               attempt_number: 1,
             });
+
+            if (insertErr) {
+              debug(`ERROR scheduling callback: ${insertErr.message}`);
+            } else {
+              debug(`Callback scheduled for ${callbackTime.toISOString()}`);
+            }
 
             result = { scheduled_callback: true, callback_time: callbackTime.toISOString() };
           } else {
