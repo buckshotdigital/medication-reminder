@@ -862,14 +862,16 @@ export default function PatientDetailPage() {
 
         // Group calls by medication+day so retries count as one event
         // "taken" wins if any attempt in the group was successful
+        // Failed/no_answer/voicemail count as "not taken" for adherence
         function adherenceStats(filteredCalls: any[]) {
+          const inProgressStatuses = ['initiated', 'answered'];
           const groups = new Map<string, boolean>();
           for (const c of filteredCalls) {
-            if (c.medication_taken === null) continue;
+            // Skip in-progress calls (no outcome yet)
+            if (c.medication_taken === null && inProgressStatuses.includes(c.status)) continue;
             const day = new Date(c.created_at).toISOString().split('T')[0];
             const key = `${c.medication_id || c.medications?.id}-${day}`;
             const prev = groups.get(key);
-            // taken wins over not-taken
             groups.set(key, prev === true ? true : c.medication_taken === true);
           }
           const total = groups.size;

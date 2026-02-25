@@ -145,18 +145,16 @@ export async function fetchDashboardStats() {
       .eq('status', 'pending')
       .gte('scheduled_for', todayStart.toISOString())
       .lte('scheduled_for', todayEnd.toISOString()),
-    // This week's calls for adherence (need patient_id, medication_id, created_at for grouping)
+    // This week's calls for adherence (include all terminal calls, not just those with medication_taken)
     supabase
       .from('reminder_call_logs')
-      .select('medication_taken, patient_id, medication_id, created_at')
-      .gte('created_at', weekStart.toISOString())
-      .not('medication_taken', 'is', null),
+      .select('medication_taken, patient_id, medication_id, created_at, status')
+      .gte('created_at', weekStart.toISOString()),
     // This month's calls for adherence
     supabase
       .from('reminder_call_logs')
-      .select('medication_taken, patient_id, medication_id, created_at')
-      .gte('created_at', monthStart.toISOString())
-      .not('medication_taken', 'is', null),
+      .select('medication_taken, patient_id, medication_id, created_at, status')
+      .gte('created_at', monthStart.toISOString()),
     // All patients with medication count
     supabase
       .from('patients')
@@ -208,9 +206,14 @@ export async function fetchDashboardStats() {
 
   // Group calls by patient+medication+day so retries count as one event
   // "taken" wins if any attempt in the group was successful
+  // Failed/no_answer/voicemail count as "not taken" for adherence
+  // Only truly in-progress calls (initiated/answered) are excluded
   function adherenceStats(calls: any[]) {
+    const inProgressStatuses = ['initiated', 'answered'];
     const groups = new Map<string, boolean>();
     for (const c of calls) {
+      // Skip in-progress calls (no outcome yet)
+      if (c.medication_taken === null && inProgressStatuses.includes(c.status)) continue;
       const day = new Date(c.created_at).toISOString().split('T')[0];
       const key = `${c.patient_id}-${c.medication_id}-${day}`;
       const prev = groups.get(key);
