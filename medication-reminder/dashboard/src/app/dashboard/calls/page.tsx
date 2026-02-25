@@ -275,7 +275,7 @@ function CallsContent() {
                         ) : (
                           <ChevronRight className="w-3 h-3" />
                         )}
-                        {group.retries.length} retry{group.retries.length !== 1 ? 'ies' : ''}
+                        {group.retries.length} {group.retries.length !== 1 ? 'retries' : 'retry'}
                       </button>
                     )}
                   </div>
