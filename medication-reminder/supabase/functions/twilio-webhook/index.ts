@@ -465,34 +465,48 @@ async function scheduleRetry(callSid: string) {
     return;
   }
 
-  // Check if auto_retry is enabled for this medication
+  // Look up retry settings for this medication
   const { data: med } = await supabase
     .from('medications')
-    .select('auto_retry')
+    .select('max_retries, retry_delay_minutes, retry_until, patients(timezone)')
     .eq('id', callLog.medication_id)
     .single();
 
-  if (med && med.auto_retry === false) {
-    console.log('[twilio-webhook] auto_retry disabled for this medication, skipping retry');
+  const maxRetries = med?.max_retries ?? 2;
+  const delayMinutes = med?.retry_delay_minutes ?? 30;
+  const retryUntil = med?.retry_until; // TIME string like "21:00:00"
+  const tz = (med?.patients as any)?.timezone || 'America/Toronto';
+
+  // max_retries = 0 means no retries
+  if (maxRetries === 0) {
+    console.log('[twilio-webhook] max_retries=0 for this medication, skipping retry');
     return;
   }
 
   const attemptNumber = callLog.attempt_number || 1;
 
-  // Max 3 call attempts
-  if (attemptNumber >= 3) {
-    console.log('[twilio-webhook] Max attempts reached, sending SMS fallback');
-
-    // SMS fallback: send text reminder to patient
+  if (attemptNumber >= maxRetries) {
+    console.log(`[twilio-webhook] Max attempts (${maxRetries}) reached, sending SMS fallback`);
     await sendSmsFallback(callLog.patient_id, callLog.medication_id);
-
-    // Also alert caregiver
-    await alertCaregiver(callLog.patient_id, 'Patient did not answer after 3 call attempts. SMS reminder sent.');
+    await alertCaregiver(callLog.patient_id, `Patient did not answer after ${maxRetries} call attempts. SMS reminder sent.`);
     return;
   }
 
-  // Schedule retry in 30 minutes
-  const retryTime = new Date(Date.now() + 30 * 60 * 1000);
+  // Calculate retry time
+  const retryTime = new Date(Date.now() + delayMinutes * 60 * 1000);
+
+  // Check if retry would be after the "no calls after" cutoff
+  if (retryUntil) {
+    const retryLocalStr = retryTime.toLocaleString('en-US', { timeZone: tz });
+    const retryLocal = new Date(retryLocalStr);
+    const [cutH, cutM] = retryUntil.split(':').map(Number);
+    const cutoffMinutes = cutH * 60 + cutM;
+    const retryMinutes = retryLocal.getHours() * 60 + retryLocal.getMinutes();
+    if (retryMinutes >= cutoffMinutes) {
+      console.log(`[twilio-webhook] Retry at ${retryLocal.toLocaleTimeString()} would be after cutoff ${retryUntil} in ${tz}, skipping`);
+      return;
+    }
+  }
 
   const { error } = await supabase.from('scheduled_reminder_calls').insert({
     patient_id: callLog.patient_id,
@@ -504,7 +518,7 @@ async function scheduleRetry(callSid: string) {
   if (error) {
     console.error('[twilio-webhook] Failed to schedule retry:', error);
   } else {
-    console.log('[twilio-webhook] Retry scheduled for:', retryTime.toISOString());
+    console.log(`[twilio-webhook] Retry scheduled for ${retryTime.toISOString()} (attempt ${attemptNumber + 1}/${maxRetries}, delay ${delayMinutes}min)`);
   }
 }
 

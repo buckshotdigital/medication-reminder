@@ -201,7 +201,7 @@ export async function fetchPatient(id: string) {
     .from('patients')
     .select(`
       *,
-      medications (id, name, description, dosage, reminder_time, reminder_days, is_active, refill_remaining_doses, refill_alert_threshold, last_refill_date, auto_retry),
+      medications (id, name, description, dosage, reminder_time, reminder_days, is_active, refill_remaining_doses, refill_alert_threshold, last_refill_date, max_retries, retry_delay_minutes, retry_until),
       patient_caregivers (is_primary, caregivers (name, phone_number, email))
     `)
     .eq('id', id)

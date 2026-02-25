@@ -420,35 +420,58 @@ serve(async (req) => {
             debug('WARN: callSid is null, cannot update medication_taken=false');
           }
 
-          // Schedule a callback if auto_retry is enabled for this medication
+          // Schedule a callback based on medication retry settings
           if (patientId && medicationId) {
             const { data: medRetry } = await supabase
               .from('medications')
-              .select('auto_retry')
+              .select('max_retries, retry_delay_minutes, retry_until, patients(timezone)')
               .eq('id', medicationId)
               .single();
 
-            if (medRetry?.auto_retry !== false) {
-              const callbackMinutes = parameters?.callback_minutes || 30;
+            const maxRetries = medRetry?.max_retries ?? 2;
+            const delayMinutes = medRetry?.retry_delay_minutes ?? 30;
+            const retryUntil = medRetry?.retry_until;
+            const medTz = (medRetry?.patients as any)?.timezone || 'America/Toronto';
+
+            if (maxRetries > 0) {
+              const callbackMinutes = parameters?.callback_minutes || delayMinutes;
               const callbackTime = new Date(Date.now() + callbackMinutes * 60 * 1000);
 
-              const { error: insertErr } = await supabase.from('scheduled_reminder_calls').insert({
-                patient_id: patientId,
-                medication_id: medicationId,
-                scheduled_for: callbackTime.toISOString(),
-                attempt_number: 1,
-              });
-
-              if (insertErr) {
-                debug(`ERROR scheduling callback: ${insertErr.message}`);
-              } else {
-                debug(`Callback scheduled for ${callbackTime.toISOString()}`);
+              // Check "no calls after" cutoff
+              let withinWindow = true;
+              if (retryUntil) {
+                const localStr = callbackTime.toLocaleString('en-US', { timeZone: medTz });
+                const localTime = new Date(localStr);
+                const [cutH, cutM] = retryUntil.split(':').map(Number);
+                const cutoffMin = cutH * 60 + cutM;
+                const callbackMin = localTime.getHours() * 60 + localTime.getMinutes();
+                if (callbackMin >= cutoffMin) {
+                  withinWindow = false;
+                  debug(`Callback at ${localTime.toLocaleTimeString()} would be after cutoff ${retryUntil}, skipping`);
+                }
               }
 
-              result = { scheduled_callback: true, callback_time: callbackTime.toISOString() };
+              if (withinWindow) {
+                const { error: insertErr } = await supabase.from('scheduled_reminder_calls').insert({
+                  patient_id: patientId,
+                  medication_id: medicationId,
+                  scheduled_for: callbackTime.toISOString(),
+                  attempt_number: 1,
+                });
+
+                if (insertErr) {
+                  debug(`ERROR scheduling callback: ${insertErr.message}`);
+                } else {
+                  debug(`Callback scheduled for ${callbackTime.toISOString()}`);
+                }
+
+                result = { scheduled_callback: true, callback_time: callbackTime.toISOString() };
+              } else {
+                result = { acknowledged: true, past_cutoff: true };
+              }
             } else {
-              debug('auto_retry disabled for this medication, skipping callback');
-              result = { acknowledged: true, auto_retry_disabled: true };
+              debug('max_retries=0 for this medication, skipping callback');
+              result = { acknowledged: true, retries_disabled: true };
             }
           } else {
             result = { acknowledged: true };

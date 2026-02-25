@@ -102,7 +102,9 @@ export default function PatientDetailPage() {
     refill_remaining_doses: '',
     refill_alert_threshold: '3',
     last_refill_date: '',
-    auto_retry: true,
+    max_retries: '2',
+    retry_delay_minutes: '30',
+    retry_until: '',
   });
   const [savingMed, setSavingMed] = useState(false);
   const [togglingMedId, setTogglingMedId] = useState<string | null>(null);
@@ -204,7 +206,9 @@ export default function PatientDetailPage() {
       refill_remaining_doses: med.refill_remaining_doses != null ? String(med.refill_remaining_doses) : '',
       refill_alert_threshold: med.refill_alert_threshold != null ? String(med.refill_alert_threshold) : '3',
       last_refill_date: med.last_refill_date || '',
-      auto_retry: med.auto_retry !== false,
+      max_retries: med.max_retries != null ? String(med.max_retries) : '2',
+      retry_delay_minutes: med.retry_delay_minutes != null ? String(med.retry_delay_minutes) : '30',
+      retry_until: med.retry_until || '',
     });
   }, []);
 
@@ -243,7 +247,9 @@ export default function PatientDetailPage() {
           ? null
           : Number(editMed.refill_alert_threshold),
         last_refill_date: editMed.last_refill_date || null,
-        auto_retry: editMed.auto_retry,
+        max_retries: Number(editMed.max_retries),
+        retry_delay_minutes: Number(editMed.retry_delay_minutes),
+        retry_until: editMed.retry_until || null,
       });
       await refetchPatient();
       setEditingMedId(null);
@@ -674,17 +680,44 @@ export default function PatientDetailPage() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={editMed.auto_retry}
-                        onChange={e => setEditMed(prev => ({ ...prev, auto_retry: e.target.checked }))}
-                        className="rounded border-gray-300"
-                      />
-                      <span className="text-sm font-medium">Follow-up calls</span>
-                      <span className="text-xs text-muted-foreground">Auto-retry on voicemail &amp; callback if not taken</span>
-                    </label>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Follow-up Calls</label>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Max retries</label>
+                        <Select
+                          value={editMed.max_retries}
+                          onChange={e => setEditMed(prev => ({ ...prev, max_retries: e.target.value }))}
+                        >
+                          <option value="0">Off</option>
+                          <option value="1">1</option>
+                          <option value="2">2</option>
+                          <option value="3">3</option>
+                          <option value="5">5</option>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">Retry delay</label>
+                        <Select
+                          value={editMed.retry_delay_minutes}
+                          onChange={e => setEditMed(prev => ({ ...prev, retry_delay_minutes: e.target.value }))}
+                        >
+                          <option value="15">15 min</option>
+                          <option value="30">30 min</option>
+                          <option value="60">1 hour</option>
+                          <option value="120">2 hours</option>
+                        </Select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-muted-foreground mb-1">No calls after</label>
+                        <Input
+                          type="time"
+                          value={editMed.retry_until}
+                          onChange={e => setEditMed(prev => ({ ...prev, retry_until: e.target.value }))}
+                          placeholder="e.g. 21:00"
+                        />
+                      </div>
+                    </div>
                   </div>
                   <div className="flex gap-2">
                     <Button size="sm" loading={savingMed} onClick={saveMedEdit}>
