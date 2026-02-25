@@ -82,10 +82,8 @@ function CallsContent() {
 
       if (statusFilter !== 'all') {
         if (statusFilter === 'taken' && call.medication_taken !== true) return false;
-        if (statusFilter === 'missed' && call.medication_taken !== false) return false;
-        if (statusFilter === 'pending' && !(call.medication_taken === null && !['no_answer', 'failed', 'voicemail'].includes(call.status))) return false;
+        if (statusFilter === 'not_taken' && call.medication_taken !== false) return false;
         if (statusFilter === 'unreached' && !['no_answer', 'failed', 'voicemail'].includes(call.status)) return false;
-        if (statusFilter === 'no_answer' && call.status !== 'no_answer') return false;
       }
 
       if (dateFrom) {
@@ -158,8 +156,7 @@ function CallsContent() {
             <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
               <option value="all">All Statuses</option>
               <option value="taken">Taken</option>
-              <option value="pending">Pending</option>
-              <option value="missed">Missed</option>
+              <option value="not_taken">Not Taken</option>
               <option value="unreached">Unreached</option>
             </Select>
             <Input

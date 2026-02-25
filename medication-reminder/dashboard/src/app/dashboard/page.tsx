@@ -12,7 +12,7 @@ import Link from 'next/link';
 import { AlertTriangle, Users, CheckCircle2, ChevronRight, Pill, RefreshCw, Coins } from 'lucide-react';
 
 interface DashboardStats {
-  today: { taken: number; pending: number; missed: number; unreached: number };
+  today: { taken: number; scheduled: number; pending: number; unreached: number };
   patients: Array<{ id: string; name: string; phone_number: string; timezone: string; medications?: Array<{ id: string }> }>;
   weekly_adherence: number;
   recent_calls: Array<any>;
@@ -47,10 +47,10 @@ export default function DashboardPage() {
   }
 
   const stats = (data || {}) as DashboardStats;
-  const today = stats.today || { taken: 0, pending: 0, missed: 0, unreached: 0 };
-  const totalMissed = today.missed + today.unreached;
-  const allGood = totalMissed === 0 && today.pending === 0;
-  const hasCritical = totalMissed >= 3;
+  const today = stats.today || { taken: 0, scheduled: 0, pending: 0, unreached: 0 };
+  const needsAttention = today.pending + today.unreached;
+  const allGood = needsAttention === 0 && today.scheduled === 0;
+  const hasCritical = needsAttention >= 3;
   const credits = stats.credits;
   const lowBalance = (credits?.balance_minutes ?? 0) <= 10;
 
@@ -85,12 +85,12 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-rose-600 dark:text-rose-400 shrink-0" />
             <p className="text-rose-800 dark:text-rose-300 font-medium text-sm">
-              {totalMissed} missed reminders need your attention
+              {needsAttention} reminder{needsAttention !== 1 ? 's' : ''} need{needsAttention === 1 ? 's' : ''} your attention
             </p>
           </div>
           <ChevronRight className="w-5 h-5 text-rose-400 shrink-0" />
         </Link>
-      ) : totalMissed > 0 ? (
+      ) : needsAttention > 0 ? (
         <Link
           href="/dashboard/tasks"
           className="rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-100 dark:border-amber-800/30 p-4 flex items-center justify-between gap-3 animate-fade-in hover:shadow-soft transition-shadow"
@@ -98,7 +98,7 @@ export default function DashboardPage() {
           <div className="flex items-center gap-3">
             <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0" />
             <p className="text-amber-800 dark:text-amber-300 font-medium text-sm">
-              {totalMissed} missed reminder{totalMissed !== 1 ? 's' : ''} need{totalMissed === 1 ? 's' : ''} your attention
+              {needsAttention} reminder{needsAttention !== 1 ? 's' : ''} need{needsAttention === 1 ? 's' : ''} your attention
             </p>
           </div>
           <ChevronRight className="w-5 h-5 text-amber-400 shrink-0" />
@@ -121,12 +121,15 @@ export default function DashboardPage() {
         </Link>
       )}
 
-      {/* Status cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatusCard label="Taken" count={today.taken} variant="taken" href="/dashboard/calls?status=taken" />
-        <StatusCard label="Pending" count={today.pending} variant="pending" href="/dashboard/calls?status=pending" />
-        <StatusCard label="Missed" count={today.missed} variant="missed" href="/dashboard/calls?status=missed" />
-        <StatusCard label="Unreached" count={today.unreached} variant="unreached" href="/dashboard/calls?status=unreached" />
+      {/* Today's Dashboard */}
+      <div>
+        <h2 className="font-semibold mb-4">Today&apos;s Dashboard</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatusCard label="Taken" count={today.taken} variant="taken" href="/dashboard/calls?status=taken" />
+          <StatusCard label="Scheduled" count={today.scheduled} variant="scheduled" />
+          <StatusCard label="Pending" count={today.pending} variant="pending" href="/dashboard/calls?status=not_taken" />
+          <StatusCard label="Unreached" count={today.unreached} variant="unreached" href="/dashboard/calls?status=unreached" />
+        </div>
       </div>
 
       {/* Weekly adherence bar */}

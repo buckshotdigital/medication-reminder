@@ -1,14 +1,14 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import { CheckCircle2, Clock, XCircle, PhoneOff } from 'lucide-react';
+import { CheckCircle2, CalendarClock, Clock, PhoneOff } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 interface StatusCardProps {
   label: string;
   count: number;
-  variant: 'taken' | 'pending' | 'missed' | 'unreached';
+  variant: 'taken' | 'scheduled' | 'pending' | 'unreached';
   href?: string;
 }
 
@@ -20,19 +20,19 @@ const variantConfig = {
     text: 'text-emerald-700 dark:text-emerald-400',
     iconColor: 'text-emerald-400/[0.07] dark:text-emerald-400/[0.07]',
   },
+  scheduled: {
+    icon: CalendarClock,
+    accent: 'border-l-blue-400',
+    tint: 'bg-blue-50/50 dark:bg-blue-950/20',
+    text: 'text-blue-700 dark:text-blue-400',
+    iconColor: 'text-blue-400/[0.07] dark:text-blue-400/[0.07]',
+  },
   pending: {
     icon: Clock,
     accent: 'border-l-amber-400',
     tint: 'bg-amber-50/50 dark:bg-amber-950/20',
     text: 'text-amber-700 dark:text-amber-400',
     iconColor: 'text-amber-400/[0.07] dark:text-amber-400/[0.07]',
-  },
-  missed: {
-    icon: XCircle,
-    accent: 'border-l-rose-400',
-    tint: 'bg-rose-50/50 dark:bg-rose-950/20',
-    text: 'text-rose-700 dark:text-rose-400',
-    iconColor: 'text-rose-400/[0.07] dark:text-rose-400/[0.07]',
   },
   unreached: {
     icon: PhoneOff,

@@ -149,23 +149,17 @@ export async function fetchDashboardStats() {
   const patients = patientsResult.data || [];
 
   const taken = todayCalls.filter(c => c.medication_taken === true).length;
-  // Only count missed when medication_taken is explicitly false AND not an unreached status
+  // Scheduled: pending scheduled calls that haven't fired yet
+  const scheduled = pendingCalls.length;
+  // Pending: patient confirmed medication NOT taken (callback may be scheduled)
   const unreachedStatuses = ['no_answer', 'failed', 'voicemail'];
-  const missed = todayCalls.filter(c =>
+  const pending = todayCalls.filter(c =>
     c.medication_taken === false && !unreachedStatuses.includes(c.status)
   ).length;
+  // Unreached: no answer, failed, or voicemail
   const unreached = todayCalls.filter(c =>
     unreachedStatuses.includes(c.status)
   ).length;
-  // Only count calls initiated within the last 30 minutes as "in progress" —
-  // older initiated/answered calls with no result are stale (status callback failed)
-  const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000).toISOString();
-  const pending = pendingCalls.length +
-    todayCalls.filter(c =>
-      ['initiated', 'answered'].includes(c.status) &&
-      c.medication_taken === null &&
-      c.created_at >= thirtyMinAgo
-    ).length;
 
   const weekTotal = weekCalls.length;
   const weekTaken = weekCalls.filter(c => c.medication_taken === true).length;
@@ -177,7 +171,7 @@ export async function fetchDashboardStats() {
   };
 
   return {
-    today: { taken, pending, missed, unreached },
+    today: { taken, scheduled, pending, unreached },
     patients,
     weekly_adherence: weeklyAdherence,
     recent_calls: recentResult.data || [],

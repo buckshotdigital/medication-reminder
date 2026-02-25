@@ -68,9 +68,9 @@ export function getCallStatusLabel(
   status?: string
 ): string {
   if (medicationTaken === true) return 'Taken';
-  if (medicationTaken === false) return 'Missed';
+  if (medicationTaken === false) return 'Not Taken';
   if (status === 'no_answer') return 'No Answer';
   if (status === 'failed') return 'Failed';
   if (status === 'voicemail') return 'Voicemail';
-  return 'Pending';
+  return 'In Progress';
 }
