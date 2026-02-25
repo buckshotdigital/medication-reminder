@@ -130,7 +130,7 @@ export default function DashboardPage() {
           <StatusCard label="Taken" count={today.taken} variant="taken" href="/dashboard/calls?status=taken" />
           <StatusCard label="Scheduled" count={today.scheduled} variant="scheduled" href="/dashboard/calls?status=scheduled" />
           <StatusCard label="Pending" count={today.pending} variant="pending" href="/dashboard/calls?status=not_taken" />
-          <StatusCard label="Unreached" count={today.unreached} variant="unreached" href="/dashboard/calls?status=unreached" />
+          <StatusCard label="Missed" count={today.unreached} variant="unreached" href="/dashboard/calls?status=unreached" />
         </div>
       </div>
 
