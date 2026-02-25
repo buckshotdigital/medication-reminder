@@ -84,12 +84,13 @@ export async function fetchDashboardStats() {
 
   // Query tables directly via Supabase client (uses cookie-based auth)
 
-  // Use UTC-based date boundaries for consistency
+  // Use browser's local timezone for day boundaries so late-night calls
+  // (e.g. 10 PM EST = 3 AM UTC next day) still count as "today"
   const now = new Date();
-  const todayStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0));
-  const todayEnd = new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999));
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const weekStart = new Date(todayStart);
-  weekStart.setUTCDate(weekStart.getUTCDate() - 7);
+  weekStart.setDate(weekStart.getDate() - 7);
 
   // Run all queries in parallel (including recent calls, escalations, and credits)
   const [callsResult, pendingResult, weekResult, patientsResult, recentResult, escalationsResult, balanceResult] = await Promise.all([
