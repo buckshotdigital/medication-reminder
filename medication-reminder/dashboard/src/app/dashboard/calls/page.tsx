@@ -11,7 +11,50 @@ import { Input, Select } from '@/components/form-field';
 import { formatDate, formatTime, formatDuration, relativeTime, cn } from '@/lib/utils';
 import { useState, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Phone, Search, PhoneOff, RefreshCw } from 'lucide-react';
+import { Phone, Search, PhoneOff, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+
+interface CallGroup {
+  key: string;
+  primary: any;
+  retries: any[];
+}
+
+function groupCalls(calls: any[]): CallGroup[] {
+  const groups = new Map<string, CallGroup>();
+
+  for (const call of calls) {
+    const date = new Date(call.created_at).toISOString().split('T')[0];
+    const key = `${call.patient_id}-${call.medication_id}-${date}`;
+
+    if (!groups.has(key)) {
+      groups.set(key, { key, primary: call, retries: [] });
+    } else {
+      const group = groups.get(key)!;
+      if ((call.attempt_number || 1) === 1 && (group.primary.attempt_number || 1) > 1) {
+        // This call is the primary (attempt 1), swap
+        group.retries.push(group.primary);
+        group.primary = call;
+      } else if ((call.attempt_number || 1) > 1) {
+        group.retries.push(call);
+      } else {
+        // Multiple attempt_number=1 calls on same day — treat earlier as primary
+        if (new Date(call.created_at) < new Date(group.primary.created_at)) {
+          group.retries.push(group.primary);
+          group.primary = call;
+        } else {
+          group.retries.push(call);
+        }
+      }
+    }
+  }
+
+  // Sort retries by attempt number
+  for (const group of groups.values()) {
+    group.retries.sort((a, b) => (a.attempt_number || 1) - (b.attempt_number || 1));
+  }
+
+  return Array.from(groups.values());
+}
 
 function CallsContent() {
   const searchParams = useSearchParams();
@@ -26,6 +69,7 @@ function CallsContent() {
   const [statusFilter, setStatusFilter] = useState(initialStatus);
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
     if (!calls) return [];
@@ -56,6 +100,17 @@ function CallsContent() {
       return true;
     });
   }, [calls, search, statusFilter, dateFrom, dateTo]);
+
+  const grouped = useMemo(() => groupCalls(filtered), [filtered]);
+
+  const toggleGroup = (key: string) => {
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const statusBorderColor = (call: any) => {
     if (call.medication_taken === true) return 'border-l-emerald-400';
@@ -130,48 +185,102 @@ function CallsContent() {
         <CallListSkeleton />
       ) : filtered.length > 0 ? (
         <div className="space-y-3">
-          {filtered.map((call: any) => (
-            <div
-              key={call.id}
-              className={cn(
-                'rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4',
-                statusBorderColor(call)
-              )}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <Avatar name={call.patients?.name || 'Unknown'} size="sm" />
-                  <div>
-                    <span className="font-medium">{call.patients?.name || 'Unknown'}</span>
-                    <p className="text-sm text-muted-foreground">
-                      {call.medications?.name}
-                      {call.medications?.dosage && ` (${call.medications.dosage})`}
-                    </p>
+          {grouped.map((group) => (
+            <div key={group.key}>
+              {/* Primary call */}
+              <div
+                className={cn(
+                  'rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4',
+                  statusBorderColor(group.primary)
+                )}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={group.primary.patients?.name || 'Unknown'} size="sm" />
+                    <div>
+                      <span className="font-medium">{group.primary.patients?.name || 'Unknown'}</span>
+                      <p className="text-sm text-muted-foreground">
+                        {group.primary.medications?.name}
+                        {group.primary.medications?.dosage && ` (${group.primary.medications.dosage})`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <StatusBadge variant={getCallStatusVariant(group.primary.medication_taken, group.primary.status)}>
+                      {getCallStatusLabel(group.primary.medication_taken, group.primary.status)}
+                    </StatusBadge>
+                    {group.retries.length > 0 && (
+                      <button
+                        onClick={() => toggleGroup(group.key)}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg hover:bg-muted transition-colors"
+                      >
+                        {expandedGroups.has(group.key) ? (
+                          <ChevronDown className="w-3 h-3" />
+                        ) : (
+                          <ChevronRight className="w-3 h-3" />
+                        )}
+                        {group.retries.length} retry{group.retries.length !== 1 ? 'ies' : ''}
+                      </button>
+                    )}
                   </div>
                 </div>
-                <StatusBadge variant={getCallStatusVariant(call.medication_taken, call.status)}>
-                  {getCallStatusLabel(call.medication_taken, call.status)}
-                </StatusBadge>
+
+                <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2 ml-12">
+                  <span title={`${formatDate(group.primary.created_at)} at ${formatTime(group.primary.created_at)}`}>
+                    {relativeTime(group.primary.created_at)}
+                  </span>
+                  {group.primary.duration_seconds != null && group.primary.duration_seconds > 0 && (
+                    <span>Duration: {formatDuration(group.primary.duration_seconds)}</span>
+                  )}
+                  {group.primary.attempt_number > 1 && (
+                    <span>Attempt #{group.primary.attempt_number}</span>
+                  )}
+                </div>
+
+                <div className="ml-12">
+                  <CallTranscript
+                    transcript={group.primary.patient_response}
+                    callSid={group.primary.call_sid}
+                  />
+                </div>
               </div>
 
-              <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2 ml-12">
-                <span title={`${formatDate(call.created_at)} at ${formatTime(call.created_at)}`}>
-                  {relativeTime(call.created_at)}
-                </span>
-                {call.duration_seconds != null && call.duration_seconds > 0 && (
-                  <span>Duration: {formatDuration(call.duration_seconds)}</span>
-                )}
-                {call.attempt_number > 1 && (
-                  <span>Attempt #{call.attempt_number}</span>
-                )}
-              </div>
-
-              <div className="ml-12">
-                <CallTranscript
-                  transcript={call.patient_response}
-                  callSid={call.call_sid}
-                />
-              </div>
+              {/* Retry calls (expanded) */}
+              {expandedGroups.has(group.key) && group.retries.map((retry: any) => (
+                <div
+                  key={retry.id}
+                  className={cn(
+                    'rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4 ml-8 mt-2',
+                    statusBorderColor(retry)
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+                        <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                          Retry #{retry.attempt_number || 2}
+                        </span>
+                      </div>
+                    </div>
+                    <StatusBadge variant={getCallStatusVariant(retry.medication_taken, retry.status)}>
+                      {getCallStatusLabel(retry.medication_taken, retry.status)}
+                    </StatusBadge>
+                  </div>
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground mb-2">
+                    <span title={`${formatDate(retry.created_at)} at ${formatTime(retry.created_at)}`}>
+                      {relativeTime(retry.created_at)}
+                    </span>
+                    {retry.duration_seconds != null && retry.duration_seconds > 0 && (
+                      <span>Duration: {formatDuration(retry.duration_seconds)}</span>
+                    )}
+                  </div>
+                  <CallTranscript
+                    transcript={retry.patient_response}
+                    callSid={retry.call_sid}
+                  />
+                </div>
+              ))}
             </div>
           ))}
         </div>

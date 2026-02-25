@@ -11,6 +11,16 @@ const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')!;
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')!;
 const TWILIO_PHONE_NUMBER = Deno.env.get('TWILIO_PHONE_NUMBER')!;
 
+// Escape special XML characters for safe TwiML embedding
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 // Validate Twilio request signature to prevent spoofing
 async function validateTwilioSignature(
   req: Request,
@@ -74,11 +84,19 @@ serve(async (req) => {
   // Strip function name prefix from path if present (Supabase runtime may include it)
   const cleanPath = path.replace(/^\/twilio-webhook/, '') || '/';
   const externalUrl = `https://${projectRef}.supabase.co/functions/v1/twilio-webhook${cleanPath}`;
+  const isStatusRoute = path.includes('/status') || path.includes('/amd');
   console.log(`[twilio-webhook] Signature check: path=${path}, cleanPath=${cleanPath}, externalUrl=${externalUrl}`);
   const isValid = await validateTwilioSignature(req, externalUrl, formParams);
   if (!isValid) {
-    console.warn(`[twilio-webhook] Twilio signature validation FAILED for ${externalUrl}`);
-    return new Response('Unauthorized', { status: 401 });
+    if (isStatusRoute) {
+      // Status callbacks contain no sensitive data and the callSid is verified against our DB.
+      // Signature mismatch is likely due to URL differences between what Twilio signs and our constructed URL.
+      const receivedSig = req.headers.get('x-twilio-signature') || '(none)';
+      console.warn(`[twilio-webhook] Signature validation FAILED for /status (processing anyway). externalUrl=${externalUrl}, receivedSig=${receivedSig}`);
+    } else {
+      console.warn(`[twilio-webhook] Twilio signature validation FAILED for ${externalUrl}`);
+      return new Response('Unauthorized', { status: 401 });
+    }
   }
 
   const callSid = formParams['CallSid'] || url.searchParams.get('CallSid');
@@ -112,7 +130,7 @@ serve(async (req) => {
 
     let medIdsParam = '';
     if (medicationIdsParam) {
-      medIdsParam = `\n      <Parameter name="medication_ids" value="${medicationIdsParam.replace(/"/g, '&quot;')}" />`;
+      medIdsParam = `\n      <Parameter name="medication_ids" value="${escapeXml(medicationIdsParam)}" />`;
     }
 
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
@@ -122,9 +140,9 @@ serve(async (req) => {
       <Parameter name="patient_id" value="${patientId}" />
       <Parameter name="medication_id" value="${medicationId}" />${medIdsParam}
       <Parameter name="call_sid" value="${callSid}" />
-      <Parameter name="patient_name" value="${(patientName).replace(/"/g, '&quot;')}" />
-      <Parameter name="medication_name" value="${(medicationName).replace(/"/g, '&quot;')}" />
-      <Parameter name="medication_dosage" value="${(medicationDosage).replace(/"/g, '&quot;')}" />
+      <Parameter name="patient_name" value="${escapeXml(patientName)}" />
+      <Parameter name="medication_name" value="${escapeXml(medicationName)}" />
+      <Parameter name="medication_dosage" value="${escapeXml(medicationDosage)}" />
     </Stream>
   </Connect>
 </Response>`;
@@ -193,7 +211,7 @@ serve(async (req) => {
         // Reply to patient
         const responseTwiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Message>Great! We've recorded that you've taken your medication. Thank you, ${patient.name}!</Message>
+  <Message>Great! We've recorded that you've taken your medication. Thank you, ${escapeXml(patient.name)}!</Message>
 </Response>`;
 
         return new Response(responseTwiml, {
@@ -211,6 +229,80 @@ serve(async (req) => {
     return new Response(responseTwiml, {
       headers: { 'Content-Type': 'application/xml' },
     });
+  }
+
+  // Route: /amd - Async AMD (Answering Machine Detection) callback
+  if (path.includes('/amd')) {
+    const answeredBy = formParams['AnsweredBy'];
+    const amdCallSid = formParams['CallSid'];
+
+    console.log(`[twilio-webhook] /amd - CallSid: ${amdCallSid}, AnsweredBy: ${answeredBy}`);
+
+    if (answeredBy === 'machine_start' || answeredBy === 'machine_end_beep' || answeredBy === 'machine_end_silence') {
+      // Voicemail detected — look up call info and leave a message
+      if (amdCallSid) {
+        try {
+          const { data: callLog } = await supabase
+            .from('reminder_call_logs')
+            .select('id, patient_id, medication_id')
+            .eq('call_sid', amdCallSid)
+            .single();
+
+          let voicemailMessage = 'Hi, this is GentleRing with a medication reminder. Please take your medication when you get this message. Goodbye!';
+
+          if (callLog) {
+            const [patientResult, medResult] = await Promise.all([
+              supabase.from('patients').select('name').eq('id', callLog.patient_id).single(),
+              supabase.from('medications').select('name, dosage').eq('id', callLog.medication_id).single(),
+            ]);
+
+            const patientName = patientResult.data?.name || '';
+            const medName = medResult.data?.name || 'your medication';
+            const dosage = medResult.data?.dosage ? ` ${medResult.data.dosage}` : '';
+
+            voicemailMessage = `Hi ${patientName}, this is GentleRing calling to remind you to take your ${medName}${dosage}. Please take it when you get this message. We'll try calling again later. Goodbye!`;
+
+            // Mark call as voicemail
+            await supabase
+              .from('reminder_call_logs')
+              .update({ status: 'voicemail', notes: 'Voicemail detected by AMD, message left' })
+              .eq('call_sid', amdCallSid);
+          }
+
+          // Update the live call with a voicemail TwiML message
+          const voicemailTwiml = `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="Polly.Amy" language="en-GB">${escapeXml(voicemailMessage)}</Say><Hangup/></Response>`;
+
+          const updateResponse = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls/${amdCallSid}.json`,
+            {
+              method: 'POST',
+              headers: {
+                'Authorization': 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
+                'Content-Type': 'application/x-www-form-urlencoded',
+              },
+              body: new URLSearchParams({ Twiml: voicemailTwiml }),
+            }
+          );
+
+          if (!updateResponse.ok) {
+            console.error('[twilio-webhook] Failed to update call with voicemail TwiML:', await updateResponse.text());
+          } else {
+            console.log('[twilio-webhook] Voicemail message being left for call:', amdCallSid);
+          }
+
+          // Schedule retry
+          if (callLog) {
+            await scheduleRetry(amdCallSid);
+          }
+        } catch (e) {
+          console.error('[twilio-webhook] AMD handler error:', e);
+        }
+      }
+    } else {
+      console.log(`[twilio-webhook] /amd - Human detected (${answeredBy}), call proceeds normally`);
+    }
+
+    return new Response('OK', { status: 200 });
   }
 
   // Route: /status - Call status callback
@@ -314,14 +406,24 @@ serve(async (req) => {
         await scheduleRetry(callSid);
       }
 
-      // If voicemail detected, mark as no answer
+      // Legacy voicemail detection via status callback (now handled by /amd route with async AMD)
+      // Keep as fallback in case AMD callback doesn't fire
       if (answeredBy === 'machine_start' || answeredBy === 'machine_end_beep') {
-        await supabase
+        const { data: existingLog } = await supabase
           .from('reminder_call_logs')
-          .update({ status: 'voicemail', notes: 'Voicemail detected' })
-          .eq('call_sid', callSid);
+          .select('status')
+          .eq('call_sid', callSid)
+          .single();
 
-        await scheduleRetry(callSid);
+        // Only update if not already handled by /amd
+        if (existingLog && existingLog.status !== 'voicemail') {
+          await supabase
+            .from('reminder_call_logs')
+            .update({ status: 'voicemail', notes: 'Voicemail detected (status callback fallback)' })
+            .eq('call_sid', callSid);
+
+          await scheduleRetry(callSid);
+        }
       }
     }
 

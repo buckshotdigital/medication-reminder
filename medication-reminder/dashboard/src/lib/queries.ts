@@ -537,6 +537,36 @@ export async function fetchInvoices() {
   return invoices as any[];
 }
 
+// ── Voice Selection Queries ──
+
+export async function fetchVoices() {
+  const supabase = getSupabase();
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) throw new Error('Not authenticated');
+
+  const response = await fetch(
+    `${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/list-voices`,
+    {
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({}));
+    throw new Error(body.error || 'Failed to fetch voices');
+  }
+
+  const { voices } = await response.json();
+  return voices as Array<{
+    voice_id: string;
+    name: string;
+    preview_url: string;
+    labels: Record<string, string>;
+  }>;
+}
+
 export async function addMedication(data: {
   patient_id: string;
   name: string;

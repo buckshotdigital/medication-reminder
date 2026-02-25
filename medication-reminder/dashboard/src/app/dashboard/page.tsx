@@ -247,9 +247,16 @@ export default function DashboardPage() {
                     </div>
                   </div>
                   <div className="text-right flex flex-col items-end gap-1">
-                    <StatusBadge variant={getCallStatusVariant(call.medication_taken, call.status)}>
-                      {getCallStatusLabel(call.medication_taken, call.status)}
-                    </StatusBadge>
+                    <div className="flex items-center gap-1.5">
+                      {call.attempt_number > 1 && (
+                        <span className="text-xs text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full">
+                          Attempt #{call.attempt_number}
+                        </span>
+                      )}
+                      <StatusBadge variant={getCallStatusVariant(call.medication_taken, call.status)}>
+                        {getCallStatusLabel(call.medication_taken, call.status)}
+                      </StatusBadge>
+                    </div>
                     <p className="text-xs text-muted-foreground">
                       {relativeTime(call.created_at)}
                     </p>

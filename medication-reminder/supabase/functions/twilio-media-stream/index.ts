@@ -99,6 +99,18 @@ serve(async (req) => {
             medicationInfo = { name: passedMedName, dosage: passedMedDosage };
             allMedications = [medicationInfo];
             debug(`Using pre-passed names: ${passedPatientName}, ${passedMedName}`);
+            // Still need to fetch preferred_voice_id from DB (lightweight query)
+            if (patientId) {
+              const { data: voiceData } = await supabase
+                .from('patients')
+                .select('preferred_voice_id')
+                .eq('id', patientId)
+                .single();
+              if (voiceData?.preferred_voice_id) {
+                patientInfo.preferred_voice_id = voiceData.preferred_voice_id;
+                debug(`Voice override: ${voiceData.preferred_voice_id}`);
+              }
+            }
           } else if (patientId) {
             // Fallback: fetch from DB if names weren't passed
             const [patientResult, ...medResults] = await Promise.all([
@@ -111,6 +123,9 @@ serve(async (req) => {
             allMedications = medResults.filter(r => r.data).map(r => r.data);
             medicationInfo = allMedications[0] || null;
             debug(`Fetched from DB: ${patientInfo?.name || 'NOT FOUND'}, ${allMedications.map(m => m.name).join(', ') || 'NONE'}`);
+            if (patientInfo?.preferred_voice_id) {
+              debug(`Voice override: ${patientInfo.preferred_voice_id}`);
+            }
           }
 
           // Mark call start time for duration tracking
@@ -187,7 +202,7 @@ serve(async (req) => {
     }
 
     // Build init message immediately — no DB fetches, no conversation history on critical path
-    const initMessage = {
+    const initMessage: Record<string, any> = {
       type: 'conversation_initiation_client_data',
       dynamic_variables: {
         patient_name: patientInfo?.name || 'there',
@@ -196,6 +211,15 @@ serve(async (req) => {
         conversation_history: '',
       },
     };
+
+    // Override TTS voice if patient has a preferred voice set
+    // Requires "Allow TTS Override" enabled in ElevenLabs agent security settings
+    if (patientInfo?.preferred_voice_id) {
+      initMessage.conversation_config_override = {
+        tts: { voice_id: patientInfo.preferred_voice_id },
+      };
+      debug(`TTS voice override: ${patientInfo.preferred_voice_id}`);
+    }
 
     debug(`Init ready: patient=${patientInfo?.name}, med=${medicationName}`);
 

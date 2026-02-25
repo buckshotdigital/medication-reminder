@@ -62,6 +62,16 @@ const TWILIO_PHONE_NUMBER = Deno.env.get('TWILIO_PHONE_NUMBER')!;
 const TWILIO_TEST_MODE = (Deno.env.get('TWILIO_TEST_MODE') || '').toLowerCase() === 'true';
 const TWILIO_TEST_TO_NUMBER = Deno.env.get('TWILIO_TEST_TO_NUMBER') || '';
 
+// Escape special XML characters for safe TwiML embedding
+function escapeXml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
 serve(async (req) => {
   const cors = getCorsHeaders(req);
 
@@ -290,7 +300,7 @@ async function initiateCall(
   // Build medication_ids param for Stream parameter
   let medIdsStreamParam = '';
   if (medicationIds.length > 0) {
-    medIdsStreamParam = `\n      <Parameter name="medication_ids" value="${JSON.stringify(medicationIds).replace(/"/g, '&quot;')}" />`;
+    medIdsStreamParam = `\n      <Parameter name="medication_ids" value="${escapeXml(JSON.stringify(medicationIds))}" />`;
   }
 
   // Build inline TwiML — skips the webhook round trip entirely
@@ -302,9 +312,9 @@ async function initiateCall(
     <Stream url="${wsUrl}">
       <Parameter name="patient_id" value="${patientId}" />
       <Parameter name="medication_id" value="${medicationId}" />${medIdsStreamParam}
-      <Parameter name="patient_name" value="${patientName.replace(/"/g, '&quot;')}" />
-      <Parameter name="medication_name" value="${medicationName.replace(/"/g, '&quot;')}" />
-      <Parameter name="medication_dosage" value="${medicationDosage.replace(/"/g, '&quot;')}" />
+      <Parameter name="patient_name" value="${escapeXml(patientName)}" />
+      <Parameter name="medication_name" value="${escapeXml(medicationName)}" />
+      <Parameter name="medication_dosage" value="${escapeXml(medicationDosage)}" />
     </Stream>
   </Connect>
 </Response>`;
@@ -327,6 +337,10 @@ async function initiateCall(
         StatusCallbackEvent: 'initiated ringing answered completed',
         Timeout: '30',
         TimeLimit: String(maxDuration),
+        MachineDetection: 'Enable',
+        AsyncAmd: 'true',
+        AsyncAmdStatusCallback: `${webhookBase}/amd`,
+        AsyncAmdStatusCallbackMethod: 'POST',
       }),
     }
   );

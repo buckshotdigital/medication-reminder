@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { fetchPatient, fetchCallLogs, updatePatient, updateMedication, deleteMedication, deletePatient, updatePatientMaxDuration } from '@/lib/queries';
+import { fetchPatient, fetchCallLogs, updatePatient, updateMedication, deleteMedication, deletePatient, updatePatientMaxDuration, fetchVoices } from '@/lib/queries';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { CallTranscript } from '@/components/call-transcript';
@@ -14,8 +14,8 @@ import { Button, Input, Select } from '@/components/form-field';
 import { useToast } from '@/components/toast';
 import { formatDate, formatTime, formatDuration } from '@/lib/utils';
 import { cn } from '@/lib/utils';
-import { useState, useCallback, useEffect } from 'react';
-import { ArrowLeft, Plus, Pencil, Check, X, Pill, Phone, Power, Trash2, Clock } from 'lucide-react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
+import { ArrowLeft, Plus, Pencil, Check, X, Pill, Phone, Power, Trash2, Clock, Volume2, Play, Square, RefreshCw, ChevronDown, ChevronRight as ChevronRightIcon } from 'lucide-react';
 
 const dayLabels = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -43,6 +43,42 @@ const TIMEZONE_OPTIONS = [
   'Australia/Sydney',
   'Pacific/Auckland',
 ];
+
+interface CallGroup {
+  key: string;
+  primary: any;
+  retries: any[];
+}
+
+function groupPatientCalls(calls: any[]): CallGroup[] {
+  const groups = new Map<string, CallGroup>();
+  for (const call of calls) {
+    const date = new Date(call.created_at).toISOString().split('T')[0];
+    const key = `${call.medication_id}-${date}`;
+    if (!groups.has(key)) {
+      groups.set(key, { key, primary: call, retries: [] });
+    } else {
+      const group = groups.get(key)!;
+      if ((call.attempt_number || 1) === 1 && (group.primary.attempt_number || 1) > 1) {
+        group.retries.push(group.primary);
+        group.primary = call;
+      } else if ((call.attempt_number || 1) > 1) {
+        group.retries.push(call);
+      } else {
+        if (new Date(call.created_at) < new Date(group.primary.created_at)) {
+          group.retries.push(group.primary);
+          group.primary = call;
+        } else {
+          group.retries.push(call);
+        }
+      }
+    }
+  }
+  for (const group of groups.values()) {
+    group.retries.sort((a, b) => (a.attempt_number || 1) - (b.attempt_number || 1));
+  }
+  return Array.from(groups.values());
+}
 
 export default function PatientDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -73,6 +109,12 @@ export default function PatientDetailPage() {
   const [maxDurationMinutes, setMaxDurationMinutes] = useState<number>(5);
   const [savingDuration, setSavingDuration] = useState(false);
 
+  // Voice selection state
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string>('');
+  const [savingVoice, setSavingVoice] = useState(false);
+  const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null);
+  const [playingVoiceId, setPlayingVoiceId] = useState<string | null>(null);
+
   const { data: patient, isLoading: loadingPatient, refetch: refetchPatient } = useQuery({
     queryKey: ['patient', id],
     queryFn: () => fetchPatient(id),
@@ -83,11 +125,21 @@ export default function PatientDetailPage() {
     queryFn: () => fetchCallLogs(id),
   });
 
+  const { data: voices, isLoading: loadingVoices } = useQuery({
+    queryKey: ['voices'],
+    queryFn: fetchVoices,
+    staleTime: 10 * 60 * 1000, // 10 min
+  });
+
   useEffect(() => {
     if (patient?.max_call_duration_seconds) {
       setMaxDurationMinutes(Math.round(patient.max_call_duration_seconds / 60));
     }
   }, [patient?.max_call_duration_seconds]);
+
+  useEffect(() => {
+    setSelectedVoiceId(patient?.preferred_voice_id || '');
+  }, [patient?.preferred_voice_id]);
 
   const handleSaveDuration = useCallback(async () => {
     setSavingDuration(true);
@@ -101,6 +153,44 @@ export default function PatientDetailPage() {
       setSavingDuration(false);
     }
   }, [id, maxDurationMinutes, refetchPatient, toast]);
+
+  const handleSaveVoice = useCallback(async () => {
+    setSavingVoice(true);
+    try {
+      await updatePatient(id, {
+        preferred_voice_id: selectedVoiceId || null,
+      });
+      await refetchPatient();
+      toast('Voice preference updated', 'success');
+    } catch (e) {
+      toast('Failed to save: ' + (e as Error).message, 'error');
+    } finally {
+      setSavingVoice(false);
+    }
+  }, [id, selectedVoiceId, refetchPatient, toast]);
+
+  const handlePreviewVoice = useCallback((voiceId: string, previewUrl: string) => {
+    // Stop any existing playback
+    if (previewAudio) {
+      previewAudio.pause();
+      previewAudio.currentTime = 0;
+    }
+
+    if (playingVoiceId === voiceId) {
+      setPlayingVoiceId(null);
+      setPreviewAudio(null);
+      return;
+    }
+
+    const audio = new Audio(previewUrl);
+    audio.onended = () => {
+      setPlayingVoiceId(null);
+      setPreviewAudio(null);
+    };
+    audio.play();
+    setPreviewAudio(audio);
+    setPlayingVoiceId(voiceId);
+  }, [previewAudio, playingVoiceId]);
 
   const startEditMed = useCallback((med: any) => {
     setEditingMedId(med.id);
@@ -179,6 +269,18 @@ export default function PatientDetailPage() {
   const [deletingMedId, setDeletingMedId] = useState<string | null>(null);
   const [confirmDeletePatient, setConfirmDeletePatient] = useState(false);
   const [deletingPatient, setDeletingPatient] = useState(false);
+  const [expandedCallGroups, setExpandedCallGroups] = useState<Set<string>>(new Set());
+
+  const groupedCalls = useMemo(() => calls ? groupPatientCalls(calls) : [], [calls]);
+
+  const toggleCallGroup = useCallback((key: string) => {
+    setExpandedCallGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
 
   const handleDeleteMed = useCallback(async (medId: string) => {
     setDeletingMedId(medId);
@@ -381,6 +483,68 @@ export default function PatientDetailPage() {
               Save
             </Button>
           </div>
+        </div>
+      </div>
+
+      {/* Voice Selection */}
+      <div>
+        <h2 className="font-semibold mb-4">Voice Selection</h2>
+        <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-5">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-primary/10">
+              <Volume2 className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="font-medium">AI Voice</p>
+              <p className="text-sm text-muted-foreground">
+                Choose the voice used for reminder calls to this patient.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <Select
+              value={selectedVoiceId}
+              onChange={e => setSelectedVoiceId(e.target.value)}
+              className="flex-1"
+              disabled={loadingVoices}
+            >
+              <option value="">Default (agent voice)</option>
+              {voices?.map((v) => (
+                <option key={v.voice_id} value={v.voice_id}>
+                  {v.name}
+                  {v.labels?.accent ? ` (${v.labels.accent})` : ''}
+                  {v.labels?.gender ? ` - ${v.labels.gender}` : ''}
+                </option>
+              ))}
+            </Select>
+            {selectedVoiceId && voices?.find(v => v.voice_id === selectedVoiceId)?.preview_url && (
+              <button
+                onClick={() => {
+                  const voice = voices?.find(v => v.voice_id === selectedVoiceId);
+                  if (voice?.preview_url) handlePreviewVoice(voice.voice_id, voice.preview_url);
+                }}
+                className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
+                title="Preview voice"
+              >
+                {playingVoiceId === selectedVoiceId ? (
+                  <Square className="w-4 h-4" />
+                ) : (
+                  <Play className="w-4 h-4" />
+                )}
+              </button>
+            )}
+            <Button
+              size="sm"
+              loading={savingVoice}
+              onClick={handleSaveVoice}
+              disabled={(selectedVoiceId || '') === (patient.preferred_voice_id || '')}
+            >
+              Save
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            Note: &quot;Allow TTS Override&quot; must be enabled in ElevenLabs agent security settings.
+          </p>
         </div>
       </div>
 
@@ -650,8 +814,8 @@ export default function PatientDetailPage() {
           </div>
         ) : calls && calls.length > 0 ? (
           <div className="space-y-3">
-            {calls.map((call: any) => {
-              const variant = getCallStatusVariant(call.medication_taken, call.status);
+            {groupedCalls.map((group) => {
+              const variant = getCallStatusVariant(group.primary.medication_taken, group.primary.status);
               const borderColor =
                 variant === 'taken' ? 'border-l-emerald-400' :
                 variant === 'missed' ? 'border-l-rose-400' :
@@ -659,27 +823,79 @@ export default function PatientDetailPage() {
                 'border-l-amber-400';
 
               return (
-                <div key={call.id} className={cn('rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4', borderColor)}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <StatusBadge variant={variant}>
-                        {getCallStatusLabel(call.medication_taken, call.status)}
-                      </StatusBadge>
-                      <span className="text-sm text-muted-foreground">
-                        {call.medications?.name}
-                      </span>
+                <div key={group.key}>
+                  <div className={cn('rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4', borderColor)}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge variant={variant}>
+                          {getCallStatusLabel(group.primary.medication_taken, group.primary.status)}
+                        </StatusBadge>
+                        <span className="text-sm text-muted-foreground">
+                          {group.primary.medications?.name}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right text-sm text-muted-foreground">
+                          <p>{formatDate(group.primary.created_at)} {formatTime(group.primary.created_at)}</p>
+                          {group.primary.duration_seconds != null && group.primary.duration_seconds > 0 && (
+                            <p className="text-xs">{formatDuration(group.primary.duration_seconds)}</p>
+                          )}
+                        </div>
+                        {group.retries.length > 0 && (
+                          <button
+                            onClick={() => toggleCallGroup(group.key)}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg hover:bg-muted transition-colors"
+                          >
+                            {expandedCallGroups.has(group.key) ? (
+                              <ChevronDown className="w-3 h-3" />
+                            ) : (
+                              <ChevronRightIcon className="w-3 h-3" />
+                            )}
+                            {group.retries.length} retry{group.retries.length !== 1 ? 'ies' : ''}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right text-sm text-muted-foreground">
-                      <p>{formatDate(call.created_at)} {formatTime(call.created_at)}</p>
-                      {call.duration_seconds != null && call.duration_seconds > 0 && (
-                        <p className="text-xs">{formatDuration(call.duration_seconds)}</p>
-                      )}
-                    </div>
+                    <CallTranscript
+                      transcript={group.primary.patient_response}
+                      callSid={group.primary.call_sid}
+                    />
                   </div>
-                  <CallTranscript
-                    transcript={call.patient_response}
-                    callSid={call.call_sid}
-                  />
+
+                  {expandedCallGroups.has(group.key) && group.retries.map((retry: any) => {
+                    const retryVariant = getCallStatusVariant(retry.medication_taken, retry.status);
+                    const retryBorder =
+                      retryVariant === 'taken' ? 'border-l-emerald-400' :
+                      retryVariant === 'missed' ? 'border-l-rose-400' :
+                      retryVariant === 'unreached' ? 'border-l-slate-300' :
+                      'border-l-amber-400';
+
+                    return (
+                      <div key={retry.id} className={cn('rounded-2xl shadow-soft bg-white dark:bg-card p-4 border-l-4 ml-6 mt-2', retryBorder)}>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <RefreshCw className="w-3.5 h-3.5 text-muted-foreground" />
+                            <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                              Retry #{retry.attempt_number || 2}
+                            </span>
+                            <StatusBadge variant={retryVariant}>
+                              {getCallStatusLabel(retry.medication_taken, retry.status)}
+                            </StatusBadge>
+                          </div>
+                          <div className="text-right text-sm text-muted-foreground">
+                            <p>{formatDate(retry.created_at)} {formatTime(retry.created_at)}</p>
+                            {retry.duration_seconds != null && retry.duration_seconds > 0 && (
+                              <p className="text-xs">{formatDuration(retry.duration_seconds)}</p>
+                            )}
+                          </div>
+                        </div>
+                        <CallTranscript
+                          transcript={retry.patient_response}
+                          callSid={retry.call_sid}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
