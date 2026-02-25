@@ -14,6 +14,8 @@ import { AlertTriangle, Users, CheckCircle2, ChevronRight, Pill, RefreshCw, Coin
 interface DashboardStats {
   today: { taken: number; scheduled: number; pending: number; unreached: number };
   patients: Array<{ id: string; name: string; phone_number: string; timezone: string; medications?: Array<{ id: string }> }>;
+  weekly: { taken: number; total: number; adherence: number };
+  monthly: { taken: number; total: number; adherence: number };
   weekly_adherence: number;
   recent_calls: Array<any>;
   escalations: Array<any>;
@@ -132,23 +134,65 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Weekly adherence bar */}
-      <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-6">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="font-semibold">This Week&apos;s Adherence</h2>
+      {/* Adherence Summary */}
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold">Adherence Summary</h2>
           <Link href="/dashboard/adherence" className="text-sm text-primary hover:underline">
             View details
           </Link>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="text-3xl font-bold text-primary">
-            {stats.weekly_adherence || 0}%
-          </div>
-          <div className="flex-1">
-            <div className="bg-muted rounded-full h-3 overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* This Week */}
+          <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-6">
+            <p className="text-sm font-medium text-muted-foreground mb-3">This Week</p>
+            <div className="flex items-baseline gap-2 mb-3">
+              <span className="text-3xl font-bold text-primary">
+                {stats.weekly?.taken ?? 0}/{stats.weekly?.total ?? 0}
+              </span>
+              <span className="text-sm text-muted-foreground">taken</span>
+              <span className={cn(
+                'ml-auto text-lg font-semibold',
+                (stats.weekly?.adherence ?? 0) >= 80
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : (stats.weekly?.adherence ?? 0) >= 50
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-rose-600 dark:text-rose-400'
+              )}>
+                {stats.weekly?.adherence ?? 0}%
+              </span>
+            </div>
+            <div className="bg-muted rounded-full h-2.5 overflow-hidden">
               <div
-                className="bg-emerald-500 rounded-full h-3 transition-all duration-500"
-                style={{ width: `${stats.weekly_adherence || 0}%` }}
+                className="bg-emerald-500 rounded-full h-2.5 transition-all duration-500"
+                style={{ width: `${stats.weekly?.adherence ?? 0}%` }}
+              />
+            </div>
+          </div>
+
+          {/* This Month */}
+          <div className="rounded-2xl shadow-soft bg-white dark:bg-card p-6">
+            <p className="text-sm font-medium text-muted-foreground mb-3">This Month</p>
+            <div className="flex items-baseline gap-2 mb-3">
+              <span className="text-3xl font-bold text-primary">
+                {stats.monthly?.taken ?? 0}/{stats.monthly?.total ?? 0}
+              </span>
+              <span className="text-sm text-muted-foreground">taken</span>
+              <span className={cn(
+                'ml-auto text-lg font-semibold',
+                (stats.monthly?.adherence ?? 0) >= 80
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : (stats.monthly?.adherence ?? 0) >= 50
+                    ? 'text-amber-600 dark:text-amber-400'
+                    : 'text-rose-600 dark:text-rose-400'
+              )}>
+                {stats.monthly?.adherence ?? 0}%
+              </span>
+            </div>
+            <div className="bg-muted rounded-full h-2.5 overflow-hidden">
+              <div
+                className="bg-emerald-500 rounded-full h-2.5 transition-all duration-500"
+                style={{ width: `${stats.monthly?.adherence ?? 0}%` }}
               />
             </div>
           </div>

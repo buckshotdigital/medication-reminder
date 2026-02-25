@@ -91,9 +91,11 @@ export async function fetchDashboardStats() {
   const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
   const weekStart = new Date(todayStart);
   weekStart.setDate(weekStart.getDate() - 7);
+  const monthStart = new Date(todayStart);
+  monthStart.setDate(monthStart.getDate() - 30);
 
   // Run all queries in parallel (including recent calls, escalations, and credits)
-  const [callsResult, pendingResult, weekResult, patientsResult, recentResult, escalationsResult, balanceResult] = await Promise.all([
+  const [callsResult, pendingResult, weekResult, monthResult, patientsResult, recentResult, escalationsResult, balanceResult] = await Promise.all([
     // Today's call logs
     supabase
       .from('reminder_call_logs')
@@ -113,6 +115,12 @@ export async function fetchDashboardStats() {
       .from('reminder_call_logs')
       .select('medication_taken')
       .gte('created_at', weekStart.toISOString())
+      .not('medication_taken', 'is', null),
+    // This month's calls for adherence
+    supabase
+      .from('reminder_call_logs')
+      .select('medication_taken')
+      .gte('created_at', monthStart.toISOString())
       .not('medication_taken', 'is', null),
     // All patients with medication count
     supabase
@@ -139,7 +147,7 @@ export async function fetchDashboardStats() {
   ]);
 
   // Check for errors
-  const errors = [callsResult.error, pendingResult.error, weekResult.error, patientsResult.error, recentResult.error].filter(Boolean);
+  const errors = [callsResult.error, pendingResult.error, weekResult.error, monthResult.error, patientsResult.error, recentResult.error].filter(Boolean);
   if (errors.length > 0) {
     throw new Error(errors.map(e => e!.message).join('; '));
   }
@@ -147,6 +155,7 @@ export async function fetchDashboardStats() {
   const todayCalls = callsResult.data || [];
   const pendingCalls = pendingResult.data || [];
   const weekCalls = weekResult.data || [];
+  const monthCalls = monthResult.data || [];
   const patients = patientsResult.data || [];
 
   const taken = todayCalls.filter(c => c.medication_taken === true).length;
@@ -162,9 +171,15 @@ export async function fetchDashboardStats() {
     unreachedStatuses.includes(c.status)
   ).length;
 
+  // Weekly summary
   const weekTotal = weekCalls.length;
   const weekTaken = weekCalls.filter(c => c.medication_taken === true).length;
   const weeklyAdherence = weekTotal > 0 ? Math.round((weekTaken / weekTotal) * 100) : 0;
+
+  // Monthly summary
+  const monthTotal = monthCalls.length;
+  const monthTaken = monthCalls.filter(c => c.medication_taken === true).length;
+  const monthlyAdherence = monthTotal > 0 ? Math.round((monthTaken / monthTotal) * 100) : 0;
 
   const escalations = escalationsResult.error ? [] : (escalationsResult.data || []);
   const credits = {
@@ -174,6 +189,8 @@ export async function fetchDashboardStats() {
   return {
     today: { taken, scheduled, pending, unreached },
     patients,
+    weekly: { taken: weekTaken, total: weekTotal, adherence: weeklyAdherence },
+    monthly: { taken: monthTaken, total: monthTotal, adherence: monthlyAdherence },
     weekly_adherence: weeklyAdherence,
     recent_calls: recentResult.data || [],
     escalations,
