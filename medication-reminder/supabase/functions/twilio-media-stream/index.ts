@@ -33,6 +33,10 @@ serve(async (req) => {
   let audioChunkCount = 0;
   let audioReceivedCount = 0;
   let callStartTime: number | null = null;
+  let pendingHangup = false;
+  let hangupTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastAudioTime = 0;
+  let audioDrainTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Debug helper: logs to console and stores for DB write
   function debug(msg: string) {
@@ -52,6 +56,29 @@ serve(async (req) => {
         .eq('call_sid', callSid);
     } catch (e) {
       console.error('[twilio-media] Failed to flush debug log:', e);
+    }
+  }
+
+  // Terminate the call via Twilio API
+  async function terminateCall() {
+    if (!callSid) return;
+    try {
+      const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')!;
+      const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')!;
+      await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls/${callSid}.json`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: new URLSearchParams({ Status: 'completed' }),
+        }
+      );
+      debug('Call terminated via Twilio API');
+    } catch (e) {
+      debug(`Failed to terminate call: ${e.message}`);
     }
   }
 
@@ -271,6 +298,17 @@ serve(async (req) => {
                     payload: audioPayload,
                   },
                 }));
+                // Track last audio time for hangup drain detection
+                if (pendingHangup) {
+                  lastAudioTime = Date.now();
+                  // Reset drain timer on each audio chunk — when audio stops for 2s, hang up
+                  if (audioDrainTimer) clearTimeout(audioDrainTimer);
+                  audioDrainTimer = setTimeout(async () => {
+                    debug('Goodbye audio finished (no new audio for 2s), hanging up');
+                    if (hangupTimer) clearTimeout(hangupTimer);
+                    await terminateCall();
+                  }, 2000);
+                }
               } else {
                 debug(`Audio event #${audioReceivedCount} no payload. Keys: ${Object.keys(msg).join(', ')}. Audio keys: ${msg.audio ? Object.keys(msg.audio).join(', ') : 'N/A'}. Audio_event keys: ${msg.audio_event ? Object.keys(msg.audio_event).join(', ') : 'N/A'}`);
               }
@@ -412,28 +450,15 @@ serve(async (req) => {
 
         case 'end_call':
           result = { ending_call: true };
-          // Hang up the Twilio call after a delay to let goodbye audio finish playing
+          // Schedule hangup — will be executed after goodbye audio finishes.
+          // The ElevenLabs 'agent_response' handler detects end_call was triggered
+          // and starts a shorter timer after the last audio chunk is sent.
+          // This 12s timeout is a safety net in case that mechanism fails.
           if (callSid) {
-            setTimeout(async () => {
-              try {
-                const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID')!;
-                const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN')!;
-                await fetch(
-                  `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Calls/${callSid}.json`,
-                  {
-                    method: 'POST',
-                    headers: {
-                      'Authorization': 'Basic ' + btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`),
-                      'Content-Type': 'application/x-www-form-urlencoded',
-                    },
-                    body: new URLSearchParams({ Status: 'completed' }),
-                  }
-                );
-                debug('Call terminated via Twilio API');
-              } catch (e) {
-                debug(`Failed to terminate call: ${e.message}`);
-              }
-            }, 5000);
+            pendingHangup = true;
+            hangupTimer = setTimeout(async () => {
+              await terminateCall();
+            }, 12000);
           }
           break;
 
