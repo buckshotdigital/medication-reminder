@@ -5,6 +5,45 @@ function getSupabase() {
 }
 
 /**
+ * Convert a local time (HH:MM) in a given timezone to a UTC Date for today.
+ * Returns null if the time has already passed today in that timezone.
+ */
+function localTimeToUtc(timezone: string, timeStr: string): Date | null {
+  // Get today's date in the patient's timezone
+  const nowStr = new Date().toLocaleString('en-US', { timeZone: timezone });
+  const nowLocal = new Date(nowStr);
+  const [hours, minutes] = timeStr.split(':').map(Number);
+
+  // Build a date string for today at the reminder time in the patient's timezone
+  const year = nowLocal.getFullYear();
+  const month = String(nowLocal.getMonth() + 1).padStart(2, '0');
+  const day = String(nowLocal.getDate()).padStart(2, '0');
+  const localDateTimeStr = `${year}-${month}-${day}T${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:00`;
+
+  // Use Intl to find the UTC offset for this timezone at this date
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    timeZoneName: 'longOffset',
+  });
+  const parts = formatter.formatToParts(nowLocal);
+  const tzPart = parts.find(p => p.type === 'timeZoneName')?.value || '';
+  // Parse offset like "GMT-05:00" or "GMT+05:30"
+  const offsetMatch = tzPart.match(/GMT([+-])(\d{2}):(\d{2})/);
+  if (!offsetMatch) return null;
+
+  const sign = offsetMatch[1] === '+' ? 1 : -1;
+  const offsetHours = parseInt(offsetMatch[2]);
+  const offsetMinutes = parseInt(offsetMatch[3]);
+  const totalOffsetMs = sign * (offsetHours * 60 + offsetMinutes) * 60 * 1000;
+
+  // Local time as if UTC, then subtract the offset to get actual UTC
+  const localAsUtc = new Date(localDateTimeStr + 'Z');
+  const utcTime = new Date(localAsUtc.getTime() - totalOffsetMs);
+
+  return utcTime;
+}
+
+/**
  * Ensure a caregiver record exists for the current auth user.
  * Called after signup/login to cover paths that skip /auth/callback.
  * The DB trigger `grant_trial_credits` fires on INSERT to grant 15 free minutes.
@@ -274,26 +313,23 @@ export async function updateMedication(id: string, data: Record<string, any>) {
           .from('scheduled_reminder_calls')
           .delete()
           .eq('medication_id', id)
-          .eq('status', 'pending')
-          .gte('scheduled_for', new Date(new Date().setHours(0, 0, 0, 0)).toISOString())
-          .lte('scheduled_for', new Date(new Date().setHours(23, 59, 59, 999)).toISOString());
+          .eq('status', 'pending');
 
-        // If still active, regenerate today's call
-        if (med.is_active) {
-          const { data: { session } } = await supabase.auth.getSession();
-          if (session) {
-            fetch(
-              `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/generate_daily_reminder_calls`,
-              {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${session.access_token}`,
-                  'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-                  'Content-Type': 'application/json',
-                },
-                body: '{}',
-              }
-            ).catch(() => {});
+        // If still active, directly insert a new scheduled call
+        // (don't rely on generate_daily_reminder_calls RPC — it skips if a
+        // completed call already exists for today)
+        if (med.is_active && med.reminder_time) {
+          const tz = (med.patients as any)?.timezone || 'America/Toronto';
+          const scheduled = localTimeToUtc(tz, med.reminder_time);
+
+          if (scheduled && scheduled > new Date()) {
+            await supabase.from('scheduled_reminder_calls').insert({
+              patient_id: med.patient_id,
+              medication_id: id,
+              scheduled_for: scheduled.toISOString(),
+              attempt_number: 1,
+              status: 'pending',
+            });
           }
         }
       }
@@ -587,25 +623,28 @@ export async function addMedication(data: {
 
   if (error) throw error;
 
-  // Generate today's scheduled call for the new medication
+  // Directly insert today's scheduled call for the new medication
   try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (session) {
-      fetch(
-        `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/rpc/generate_daily_reminder_calls`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
-            'Content-Type': 'application/json',
-          },
-          body: '{}',
-        }
-      ).catch(() => {});
+    const { data: patient } = await supabase
+      .from('patients')
+      .select('timezone')
+      .eq('id', data.patient_id)
+      .single();
+
+    const tz = patient?.timezone || 'America/Toronto';
+    const scheduled = localTimeToUtc(tz, data.reminder_time);
+
+    if (scheduled && scheduled > new Date()) {
+      await supabase.from('scheduled_reminder_calls').insert({
+        patient_id: data.patient_id,
+        medication_id: med.id,
+        scheduled_for: scheduled.toISOString(),
+        attempt_number: 1,
+        status: 'pending',
+      });
     }
   } catch (e) {
-    console.warn('Failed to generate scheduled call for new medication:', e);
+    console.warn('Failed to schedule call for new medication:', e);
   }
 
   return med;
