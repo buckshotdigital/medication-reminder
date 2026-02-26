@@ -20,8 +20,8 @@ import {
   MessageCircle,
   Ticket,
 } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
-import { ensureCaregiverExists, checkIsAdmin } from '@/lib/queries';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { ensureCaregiverExists, checkIsAdmin, fetchUnreadTicketCount } from '@/lib/queries';
 import { SupportForm } from '@/components/support-form';
 
 const navItems = [
@@ -45,15 +45,33 @@ export default function DashboardLayout({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const caregiverChecked = useRef(false);
+  const isAdminRef = useRef(false);
+
+  const refreshUnreadCount = useCallback(() => {
+    fetchUnreadTicketCount(isAdminRef.current)
+      .then(setUnreadCount)
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!caregiverChecked.current) {
       caregiverChecked.current = true;
       ensureCaregiverExists();
-      checkIsAdmin().then(setIsAdmin);
+      checkIsAdmin().then((admin) => {
+        setIsAdmin(admin);
+        isAdminRef.current = admin;
+        refreshUnreadCount();
+      });
     }
-  }, []);
+  }, [refreshUnreadCount]);
+
+  // Poll for unread count every 60s
+  useEffect(() => {
+    const interval = setInterval(refreshUnreadCount, 60_000);
+    return () => clearInterval(interval);
+  }, [refreshUnreadCount]);
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -104,7 +122,7 @@ export default function DashboardLayout({
                 <Link
                   href="/dashboard/support-tickets"
                   className={cn(
-                    'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                    'relative flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors',
                     pathname.startsWith('/dashboard/support-tickets')
                       ? 'bg-primary/10 text-primary font-medium'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
@@ -112,6 +130,11 @@ export default function DashboardLayout({
                 >
                   <Ticket className="w-4 h-4" />
                   Tickets
+                  {unreadCount > 0 && (
+                    <span className="ml-1 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[11px] font-semibold leading-none px-1">
+                      {unreadCount}
+                    </span>
+                  )}
                 </Link>
               )}
             </div>
@@ -119,10 +142,13 @@ export default function DashboardLayout({
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSupportOpen(true)}
-                className="flex items-center gap-1.5 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                className="relative flex items-center gap-1.5 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
                 title="Contact Support"
               >
                 <MessageCircle className="w-4 h-4" />
+                {!isAdmin && unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-white dark:ring-card" />
+                )}
               </button>
               <ThemeToggle />
               <button
@@ -169,7 +195,14 @@ export default function DashboardLayout({
         {children}
       </main>
 
-      <SupportForm open={supportOpen} onClose={() => setSupportOpen(false)} />
+      <SupportForm
+        open={supportOpen}
+        onClose={() => {
+          setSupportOpen(false);
+          refreshUnreadCount();
+        }}
+        onRead={refreshUnreadCount}
+      />
     </div>
   );
 }

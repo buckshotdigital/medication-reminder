@@ -4,11 +4,12 @@ import { useState, useEffect } from 'react';
 import { X, Clock, CheckCircle2, MessageSquare } from 'lucide-react';
 import { FormField, Input, Button } from '@/components/form-field';
 import { useToast } from '@/components/toast';
-import { submitSupportTicket, fetchMyTickets } from '@/lib/queries';
+import { submitSupportTicket, fetchMyTickets, markTicketResponsesRead } from '@/lib/queries';
 
 interface SupportFormProps {
   open: boolean;
   onClose: () => void;
+  onRead?: () => void;
 }
 
 interface MyTicket {
@@ -17,10 +18,11 @@ interface MyTicket {
   message: string;
   status: string;
   response: string | null;
+  response_read: boolean;
   created_at: string;
 }
 
-export function SupportForm({ open, onClose }: SupportFormProps) {
+export function SupportForm({ open, onClose, onRead }: SupportFormProps) {
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -32,11 +34,20 @@ export function SupportForm({ open, onClose }: SupportFormProps) {
     if (open) {
       setTicketsLoading(true);
       fetchMyTickets()
-        .then((data) => setTickets(data || []))
+        .then((data) => {
+          setTickets(data || []);
+          // Mark unread responses as read
+          const hasUnread = (data || []).some(
+            (t: MyTicket) => t.response && !t.response_read
+          );
+          if (hasUnread) {
+            markTicketResponsesRead().then(() => onRead?.());
+          }
+        })
         .catch(() => {})
         .finally(() => setTicketsLoading(false));
     }
-  }, [open]);
+  }, [open, onRead]);
 
   if (!open) return null;
 
@@ -55,6 +66,7 @@ export function SupportForm({ open, onClose }: SupportFormProps) {
           message: message.trim(),
           status: 'open',
           response: null,
+          response_read: false,
           created_at: new Date().toISOString(),
         },
         ...prev,

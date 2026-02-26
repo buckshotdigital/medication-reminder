@@ -798,11 +798,47 @@ export async function fetchMyTickets() {
   const supabase = getSupabase();
   const { data, error } = await supabase
     .from('support_tickets')
-    .select('id, subject, message, status, response, created_at')
+    .select('id, subject, message, status, response, response_read, created_at')
     .order('created_at', { ascending: false });
 
   if (error) throw error;
   return data;
+}
+
+export async function fetchUnreadTicketCount(isAdmin: boolean): Promise<number> {
+  const supabase = getSupabase();
+
+  if (isAdmin) {
+    // Admin: count open tickets
+    const { count, error } = await supabase
+      .from('support_tickets')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open');
+
+    if (error) return 0;
+    return count || 0;
+  }
+
+  // User: count tickets with unread admin responses
+  const { count, error } = await supabase
+    .from('support_tickets')
+    .select('id', { count: 'exact', head: true })
+    .not('response', 'is', null)
+    .eq('response_read', false);
+
+  if (error) return 0;
+  return count || 0;
+}
+
+export async function markTicketResponsesRead() {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('support_tickets')
+    .update({ response_read: true })
+    .not('response', 'is', null)
+    .eq('response_read', false);
+
+  if (error) console.warn('Failed to mark tickets as read:', error);
 }
 
 export async function fetchCareTasks() {
