@@ -1,5 +1,6 @@
 -- Allow caregivers to update call logs for their linked patients
 -- Needed for stale call cleanup from the dashboard
+DROP POLICY IF EXISTS "Caregivers update linked patient call logs" ON reminder_call_logs;
 CREATE POLICY "Caregivers update linked patient call logs"
   ON reminder_call_logs FOR UPDATE
   USING (

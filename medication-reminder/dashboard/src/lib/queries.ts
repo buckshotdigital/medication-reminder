@@ -780,14 +780,29 @@ export async function fetchSupportTickets() {
   return data;
 }
 
-export async function resolveSupportTicket(id: string) {
+export async function resolveSupportTicket(id: string, response?: string) {
   const supabase = getSupabase();
+  const update: Record<string, any> = { status: 'resolved' };
+  if (response?.trim()) {
+    update.response = response.trim();
+  }
   const { error } = await supabase
     .from('support_tickets')
-    .update({ status: 'resolved' })
+    .update(update)
     .eq('id', id);
 
   if (error) throw error;
+}
+
+export async function fetchMyTickets() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('support_tickets')
+    .select('id, subject, message, status, response, created_at')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data;
 }
 
 export async function fetchCareTasks() {

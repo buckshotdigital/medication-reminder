@@ -14,6 +14,7 @@ interface SupportTicket {
   subject: string;
   message: string;
   status: string;
+  response: string | null;
   created_at: string;
 }
 
@@ -22,6 +23,7 @@ export default function SupportTicketsPage() {
   const [loading, setLoading] = useState(true);
   const [authorized, setAuthorized] = useState(false);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
+  const [responses, setResponses] = useState<Record<string, string>>({});
   const router = useRouter();
   const { toast } = useToast();
 
@@ -48,11 +50,17 @@ export default function SupportTicketsPage() {
   async function handleResolve(id: string) {
     setResolvingId(id);
     try {
-      await resolveSupportTicket(id);
+      const response = responses[id]?.trim() || undefined;
+      await resolveSupportTicket(id, response);
       setTickets((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, status: 'resolved' } : t))
+        prev.map((t) => (t.id === id ? { ...t, status: 'resolved', response: response || null } : t))
       );
-      toast('Ticket marked as resolved', 'success');
+      setResponses((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      toast('Ticket resolved', 'success');
     } catch (err) {
       toast('Failed to resolve ticket', 'error');
     } finally {
@@ -101,45 +109,61 @@ export default function SupportTicketsPage() {
                   : 'border-border/60 bg-background'
               )}
             >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    {ticket.status === 'open' ? (
-                      <Clock className="w-4 h-4 text-amber-500 shrink-0" />
-                    ) : (
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                    )}
-                    <h3 className="font-medium text-foreground truncate">
-                      {ticket.subject}
-                    </h3>
-                  </div>
-                  <p className="text-sm text-muted-foreground mb-2 whitespace-pre-wrap">
-                    {ticket.message}
-                  </p>
-                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span>{ticket.email}</span>
-                    <span>
-                      {new Date(ticket.created_at).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                        hour: 'numeric',
-                        minute: '2-digit',
-                      })}
-                    </span>
+              <div className="flex items-center gap-2 mb-1">
+                {ticket.status === 'open' ? (
+                  <Clock className="w-4 h-4 text-amber-500 shrink-0" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                )}
+                <h3 className="font-medium text-foreground truncate">
+                  {ticket.subject}
+                </h3>
+              </div>
+              <p className="text-sm text-muted-foreground mb-2 whitespace-pre-wrap">
+                {ticket.message}
+              </p>
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                <span>{ticket.email}</span>
+                <span>
+                  {new Date(ticket.created_at).toLocaleDateString('en-US', {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </div>
+
+              {ticket.status === 'resolved' && ticket.response && (
+                <div className="mt-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-3">
+                  <p className="text-xs font-medium text-emerald-600 mb-1">Admin Response</p>
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{ticket.response}</p>
+                </div>
+              )}
+
+              {ticket.status === 'open' && (
+                <div className="mt-3 space-y-2">
+                  <textarea
+                    value={responses[ticket.id] || ''}
+                    onChange={(e) =>
+                      setResponses((prev) => ({ ...prev, [ticket.id]: e.target.value }))
+                    }
+                    placeholder="Write a response (optional)..."
+                    rows={2}
+                    className="w-full px-3 py-2 rounded-lg border border-border/60 bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-colors resize-none"
+                  />
+                  <div className="flex justify-end">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      loading={resolvingId === ticket.id}
+                      onClick={() => handleResolve(ticket.id)}
+                    >
+                      {responses[ticket.id]?.trim() ? 'Respond & Resolve' : 'Resolve'}
+                    </Button>
                   </div>
                 </div>
-
-                {ticket.status === 'open' && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    loading={resolvingId === ticket.id}
-                    onClick={() => handleResolve(ticket.id)}
-                  >
-                    Resolve
-                  </Button>
-                )}
-              </div>
+              )}
             </div>
           ))}
         </div>
