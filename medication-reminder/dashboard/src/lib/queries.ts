@@ -728,6 +728,68 @@ export async function addMedication(data: {
   return med;
 }
 
+// ── Support Ticket Queries ──
+
+export async function checkIsAdmin(): Promise<boolean> {
+  const supabase = getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return false;
+
+  const { data } = await supabase
+    .from('caregivers')
+    .select('is_admin')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  return data?.is_admin === true;
+}
+
+export async function submitSupportTicket(subject: string, message: string) {
+  const supabase = getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error('Not authenticated');
+
+  const { data: caregiver } = await supabase
+    .from('caregivers')
+    .select('id, email')
+    .eq('auth_user_id', user.id)
+    .single();
+
+  if (!caregiver) throw new Error('Caregiver profile not found');
+
+  const { error } = await supabase
+    .from('support_tickets')
+    .insert({
+      caregiver_id: caregiver.id,
+      email: caregiver.email,
+      subject,
+      message,
+    });
+
+  if (error) throw error;
+}
+
+export async function fetchSupportTickets() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('support_tickets')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw error;
+  return data;
+}
+
+export async function resolveSupportTicket(id: string) {
+  const supabase = getSupabase();
+  const { error } = await supabase
+    .from('support_tickets')
+    .update({ status: 'resolved' })
+    .eq('id', id);
+
+  if (error) throw error;
+}
+
 export async function fetchCareTasks() {
   const supabase = getSupabase();
   const nowIso = new Date().toISOString();

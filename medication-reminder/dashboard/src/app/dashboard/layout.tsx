@@ -17,9 +17,12 @@ import {
   LogOut,
   Pill,
   ClipboardList,
+  MessageCircle,
+  Ticket,
 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
-import { ensureCaregiverExists } from '@/lib/queries';
+import { ensureCaregiverExists, checkIsAdmin } from '@/lib/queries';
+import { SupportForm } from '@/components/support-form';
 
 const navItems = [
   { href: '/dashboard', label: 'Overview', icon: LayoutDashboard },
@@ -40,12 +43,15 @@ export default function DashboardLayout({
   const router = useRouter();
   const queryClient = useQueryClient();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const caregiverChecked = useRef(false);
 
   useEffect(() => {
     if (!caregiverChecked.current) {
       caregiverChecked.current = true;
       ensureCaregiverExists();
+      checkIsAdmin().then(setIsAdmin);
     }
   }, []);
 
@@ -94,9 +100,30 @@ export default function DashboardLayout({
                   </Link>
                 );
               })}
+              {isAdmin && (
+                <Link
+                  href="/dashboard/support-tickets"
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm transition-colors',
+                    pathname.startsWith('/dashboard/support-tickets')
+                      ? 'bg-primary/10 text-primary font-medium'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                  )}
+                >
+                  <Ticket className="w-4 h-4" />
+                  Tickets
+                </Link>
+              )}
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSupportOpen(true)}
+                className="flex items-center gap-1.5 px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground rounded-lg transition-colors"
+                title="Contact Support"
+              >
+                <MessageCircle className="w-4 h-4" />
+              </button>
               <ThemeToggle />
               <button
                 onClick={handleSignOut}
@@ -141,6 +168,8 @@ export default function DashboardLayout({
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-20 md:pb-6 animate-fade-in">
         {children}
       </main>
+
+      <SupportForm open={supportOpen} onClose={() => setSupportOpen(false)} />
     </div>
   );
 }
